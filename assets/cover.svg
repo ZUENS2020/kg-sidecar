@@ -1,0 +1,29 @@
+<svg width="1280" height="640" viewBox="0 0 1280 640" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">KG Sidecar Cover</title>
+  <desc id="desc">KG Sidecar repository cover image</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0f172a"/>
+      <stop offset="100%" stop-color="#111827"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#22d3ee"/>
+      <stop offset="100%" stop-color="#34d399"/>
+    </linearGradient>
+  </defs>
+  <rect width="1280" height="640" fill="url(#bg)"/>
+  <g opacity="0.2" stroke="url(#accent)" stroke-width="2">
+    <circle cx="220" cy="180" r="72"/>
+    <circle cx="470" cy="120" r="48"/>
+    <circle cx="760" cy="220" r="66"/>
+    <circle cx="1040" cy="140" r="54"/>
+    <line x1="220" y1="180" x2="470" y2="120"/>
+    <line x1="470" y1="120" x2="760" y2="220"/>
+    <line x1="760" y1="220" x2="1040" y2="140"/>
+  </g>
+  <g fill="#e5e7eb" font-family="Segoe UI, Arial, sans-serif">
+    <text x="96" y="356" font-size="72" font-weight="700">KG Sidecar</text>
+    <text x="96" y="410" font-size="28" fill="#93c5fd">Dynamic Semantic Knowledge Graph for SillyTavern</text>
+    <text x="96" y="468" font-size="22" fill="#a7f3d0">Strong Consistency · Six Slots · Rollback-Safe</text>
+  </g>
+</svg>
