@@ -924,6 +924,7 @@ function buildInjectionPrompt(packet) {
         packet.second_person_psychology,
         packet.third_person_relations,
         packet.neutral_background,
+        packet.event_evidence_context || '',
     ].join('\n');
 }
 

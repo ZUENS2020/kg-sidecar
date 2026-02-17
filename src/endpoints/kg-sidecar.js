@@ -151,13 +151,12 @@ router.get('/models', async (request, response) => {
             models,
         });
     } catch (error) {
-        console.warn('KG Sidecar model list fallback:', error?.message || error);
-        return response.status(200).json({
-            ok: true,
+        console.warn('KG Sidecar model list failed:', error?.message || error);
+        return response.status(502).json({
+            ok: false,
             provider: 'openrouter',
-            cached: false,
-            models: [{ id: 'openrouter/auto', label: 'openrouter/auto', context_length: 0 }],
-            warning: 'OpenRouter model list fetch failed; using fallback model.',
+            reason_code: 'MODELS_FETCH_FAILED',
+            reason: String(error?.message || error),
         });
     }
 });

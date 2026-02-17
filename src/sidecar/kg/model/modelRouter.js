@@ -50,8 +50,8 @@ export function buildModelRouteAudit({ models = {}, runtimeHasUserDirectories = 
         let warning_code = null;
 
         if (configured.provider === 'openrouter' && !runtimeHasUserDirectories) {
-            effective = { ...SLOT_DEFAULTS[slot] };
-            status = 'fallback';
+            effective = { ...configured };
+            status = 'blocked';
             warning_code = 'OPENROUTER_RUNTIME_UNAVAILABLE';
         }
 

@@ -14,6 +14,17 @@ function nowIso() {
     return new Date().toISOString();
 }
 
+function actionPriority(action) {
+    const normalized = String(action || '').toUpperCase();
+    if (normalized === 'REPLACE') {
+        return 3;
+    }
+    if (normalized === 'DELETE') {
+        return 2;
+    }
+    return 1;
+}
+
 function ensureEntityNode(draft, { uuid, name, bio, step }) {
     if (!uuid) {
         return null;
@@ -195,8 +206,11 @@ export class MemoryGraphRepository {
                 draft.events.push({
                     event_key: eventKey,
                     event_id: eventId,
+                    id: eventId,
+                    name: eventId,
                     turn_id: turnId,
                     conversation_id: conversationId,
+                    step,
                     action: action.action,
                     old_label: action.old_label || null,
                     new_label: action.new_label || null,
@@ -298,5 +312,65 @@ export class MemoryGraphRepository {
             deleted_nodes: deletedNodes,
             deleted_relationships: deletedRelations,
         };
+    }
+
+    async queryKeyEvents({
+        conversationId,
+        focusEntityUuids = [],
+        limit = 4,
+        currentStep = null,
+        maxAgeSteps = 30,
+    }) {
+        const focus = Array.isArray(focusEntityUuids)
+            ? focusEntityUuids.map(x => String(x || '').trim()).filter(Boolean)
+            : [];
+        const topN = Math.max(1, Math.min(20, Number(limit) || 4));
+        const maxAge = Math.max(1, Number(maxAgeSteps) || 30);
+        const nowStep = Number.isFinite(Number(currentStep)) ? Number(currentStep) : null;
+
+        const events = this.#state.events
+            .filter(event => String(event?.conversation_id || '') === String(conversationId || ''))
+            .filter((event) => {
+                if (focus.length === 0) {
+                    return true;
+                }
+                const participants = Array.isArray(event?.participants) ? event.participants : [];
+                return participants.some(x => focus.includes(String(x?.uuid || '')));
+            })
+            .filter((event) => {
+                if (nowStep === null) {
+                    return true;
+                }
+                const step = Number(event?.step);
+                if (!Number.isFinite(step)) {
+                    return true;
+                }
+                return Math.abs(nowStep - step) <= maxAge;
+            })
+            .map((event) => {
+                const step = Number.isFinite(Number(event?.step)) ? Number(event.step) : 0;
+                const agePenalty = nowStep === null ? 0 : Math.max(0, Math.abs(nowStep - step));
+                const recencyScore = nowStep === null ? 0 : (maxAge - Math.min(maxAge, agePenalty)) / maxAge;
+                const priority = actionPriority(event?.action);
+                const scoreHint = Number((priority * 2 + recencyScore).toFixed(3));
+                return {
+                    event_id: event.event_id,
+                    action: event.action,
+                    evidence_quote: event.evidence_quote,
+                    participants: Array.isArray(event.participants) ? structuredClone(event.participants) : [],
+                    turn_id: event.turn_id,
+                    step,
+                    score_hint: scoreHint,
+                };
+            })
+            .sort((a, b) => {
+                if (b.score_hint !== a.score_hint) {
+                    return b.score_hint - a.score_hint;
+                }
+                return Number(b.step || 0) - Number(a.step || 0);
+            })
+            .slice(0, topN);
+
+        return events;
     }
 }

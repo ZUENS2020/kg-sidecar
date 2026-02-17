@@ -176,36 +176,6 @@ export async function generateOpenRouterJson({
     }
 }
 
-export async function tryOpenRouterJson(input, fallbackFactory) {
-    try {
-        return await generateOpenRouterJson(input);
-    } catch (error) {
-        if (String(error?.message || '').toLowerCase().includes('timed out')) {
-            throw Object.assign(new Error(String(error.message || 'OpenRouter timeout')), {
-                code: 'OPENROUTER_TIMEOUT',
-                retryable: true,
-            });
-        }
-        console.warn('KG Sidecar OpenRouter JSON fallback:', error?.message || error);
-        return fallbackFactory();
-    }
-}
-
-export async function tryOpenRouterReply(input, fallbackFactory) {
-    try {
-        return await generateOpenRouterReply(input);
-    } catch (error) {
-        if (String(error?.message || '').toLowerCase().includes('timed out')) {
-            throw Object.assign(new Error(String(error.message || 'OpenRouter timeout')), {
-                code: 'OPENROUTER_TIMEOUT',
-                retryable: true,
-            });
-        }
-        console.warn('KG Sidecar OpenRouter reply fallback:', error?.message || error);
-        return fallbackFactory();
-    }
-}
-
 export function compactJson(value, maxChars = 20000) {
     const text = JSON.stringify(value);
     if (text.length <= maxChars) {

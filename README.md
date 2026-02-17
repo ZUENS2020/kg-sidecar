@@ -1,105 +1,98 @@
-![KG Sidecar Cover](assets/cover.svg)
+# KG Sidecar（SillyTavern 动态语义知识图谱插件）
 
-# KG Sidecar
+面向 SillyTavern 的侧车式知识图谱插件。目标是让“人物关系 + 关键事件”在多轮对话中持续可检索、可注入、可审计、可回放。
 
-[![Release](https://img.shields.io/github/v/release/ZUENS2020/kg-sidecar?label=release)](https://github.com/ZUENS2020/kg-sidecar/releases)
-[![License](https://img.shields.io/github/license/ZUENS2020/kg-sidecar)](LICENSE)
-[![Repository](https://img.shields.io/badge/repo-GitHub-181717?logo=github)](https://github.com/ZUENS2020/kg-sidecar)
+## 项目定位
 
-KG Sidecar 是一个给 SillyTavern 使用的“动态语义知识图谱”插件实现。  
-它的目标不是简单记日志，而是把多轮对话中的人物关系、状态变化和关键事件，转成可追踪、可回滚、可持续注入的结构化记忆层。
+本插件采用**侧车总线编排（推荐）**：
+- 主聊天仍由 SillyTavern 现有聊天链路负责（Actor 不在插件里单独配置）。
+- KG Sidecar 在每轮前后完成检索、记忆注入、关系审计与图谱写入。
+- 支持强一致模式，提交失败会回滚并返回失败阶段与原因码。
 
 ## 核心思路
 
-这个插件围绕一个核心问题：  
-“如何让角色在长对话中持续保持记忆一致性，而不是只记住片段信息”。
+1. 检索：从 Neo4j（或内存仓库）召回焦点人物、关系与关键事件。
+2. 注入：把召回结果重构为混合视角记忆包（你 / 他人关系 / 中立背景 / 事件证据）。
+3. 主聊：主模型基于注入后的上下文生成回复。
+4. 审计更新：Extractor 执行 Evolve / Replace / Delete，Judge 做身份一致性裁决，Historian 产出剧情里程碑。
+5. 图谱同步：写入 Neo4j 并保留时序信息，支持后续检索与可视化。
 
-为此采用三条原则：
+## 当前实现特性
 
-1. 强一致优先：每轮要么完整提交，要么整体回滚，不允许半成功状态。
-2. 关系演进优先：把关系变化视为一等公民，避免“有记忆但不连贯”。
-3. 可追溯优先：每次更新都带证据来源与审计信息。
+- 六槽位流水线：Retriever / Injector / Actor / Extractor / Judge / Historian。
+- 强一致提交门：任一关键槽位输出无效会回滚，不做本地语义兜底。
+- 关系三动作：
+  - Evolve：同关系累加强度。
+  - Replace：关系类型质变替换。
+  - Delete：关系删除（阈值与衰减协同）。
+- 事件图模型：
+  - 人物节点（KGEntity）：`id/name=人物名`，带 `bio` 简介。
+  - 关系边（KG_REL）：`label/status/name` 表示关系，`weight` 表示强度。
+  - 事件节点（KGEvent）：`event_key` 唯一，`event_id/id/name=事件名`。
+  - 参与关系（INVOLVES）：一个事件可关联多人物，一个人物可关联多事件。
+- 近期修复：
+  - 事件名归一化：自动将模板名（如 `事件:EVOLVE:A→B`）纠偏为真实事件名（如“霜火协定”）。
+  - 人物/事件分离约束：问“哪些人”时抑制把事件名当人物。
 
-## 功能结构
+## 实现方法与技术细节
 
-### 六槽位流水线
+### 1) 槽位路由与模型
+- 模型路由来自插件配置，支持与 SillyTavern API 提供商/模型列表同步。
+- 严格模式下，信息提取相关步骤必须走 LLM（OpenRouter）；不使用本地语义规则兜底。
 
-每轮对话按固定顺序执行：
+### 2) 提取器（Extractor）
+- 输入：当前轮消息、对话窗口、已有关系、关系提示、焦点实体。
+- 输出：结构化 `actions + global_audit`。
+- 内置事件名标准化逻辑：优先保留显式事件名；若是模板事件名则从证据文本抽取真实事件标题。
 
-- Retriever：识别当前关键实体并召回相关子图。
-- Injector：把图谱记忆转换成可注入上下文。
-- Actor：由 SillyTavern 当前主模型负责生成回复（不在插件里单独配置）。
-- Extractor：判定关系动作（演进 / 重塑 / 清除）。
-- Judge：做身份对齐与冲突判断。
-- Historian：生成里程碑与时间线记录。
+### 3) 注入器（Injector）
+- 输出固定四段：
+  - `second_person_psychology`
+  - `third_person_relations`
+  - `neutral_background`
+  - `event_evidence_context`
+- 事件证据上下文显式分为“人物实体 / 事件实体 / 证据行”，降低实体混淆。
 
-### 三动作关系更新
+### 4) 图存储（Neo4j）
+- 关系与事件分层建模，支持按人物回查关键事件。
+- 事件节点写入 `id/name=事件名`，便于图上直读。
+- 提供清库接口、会话绑定数据库配置与可切换 profile。
 
-- Evolve：关系类型不变，权重累积。
-- Replace：关系类型发生质变，旧边替换为新边。
-- Delete：关系消亡或衰减至阈值下，移除关系边。
+### 5) 事务与回滚
+- 提交门会校验 Extractor/Judge/Historian 输出合法性。
+- 任一阶段失败返回 `ROLLED_BACK`，包含 `failed_stage` 与 `reason_code`。
 
-### 图谱模型
+## 目录结构
 
-图谱以“人物 + 关系 + 事件”组织：
+- `public/scripts/extensions/kg-sidecar/`：前端扩展（设置页、样式、模型刷新等）
+- `src/sidecar/kg/`：侧车服务与槽位实现
+- `src/endpoints/kg-sidecar.js`：服务端接入端点
+- `docs/architecture/`：运行架构说明
+- `docs/operations/`：运维与回归脚本说明
 
-- 人物节点：ID 为人物名，包含简介/Bio 用于防同名污染。
-- 关系边：边名表示关系或状态，`weight` 表示强烈程度。
-- 事件节点：可连接多个角色；角色也可连接多个事件。
+## 安装与接入（源码方式）
 
-### 一致性与回滚
+将本仓库内容覆盖到你的 SillyTavern 同名路径后重启 SillyTavern。
 
-每轮在写入前通过提交门校验。任一关键槽位失败、超时或审计不通过时，整轮回滚，不写入数据库，避免出现半更新状态。
+最少需要确保以下路径存在于 ST 根目录：
+- `public/scripts/extensions/kg-sidecar/*`
+- `src/sidecar/kg/*`
+- `src/endpoints/kg-sidecar.js`
 
-## 与 SillyTavern API 同步
+## 配置建议
 
-插件的模型配置始终跟随 SillyTavern API 面板：
+- 主聊天模型：在 SillyTavern API 页面正常配置（不在插件里重复配置 Actor）。
+- 槽位模型：建议先统一同一模型做稳定性验证，再分槽位调优。
+- 图存储：优先 Neo4j；开发联调可用 memory。
+- 强一致：建议开启；超时/格式错误直接报错并回滚。
 
-- 提供商列表来自 ST 的 Chat Completion Source 实时配置。
-- 模型列表通过 ST 状态接口动态拉取并按提供商刷新。
-- 支持多提供商并存，槽位独立选择 provider/model。
-- 模型 ID 保持原样（区分大小写），避免因大小写转换导致选型失效。
+## 验证清单
 
-## 工程实现
-
-### 技术栈
-
-- Node.js + Express
-- SillyTavern Extension API
-- Neo4j（可切换 memory）
-- Sidecar Orchestrator + Slot Pipeline
-
-### 关键能力
-
-- 会话级数据库绑定（新建 / 删除 / 切换 / 绑定 / 解绑 / 清空）
-- Neo4j 配置可编辑（URI / Database / Username / Password）
-- 槽位级模型路由（Retriever / Injector / Extractor / Judge / Historian）
-- 时间线里程碑展示与回溯
-- 强一致提交与失败回滚
-
-### 接口
-
-- `POST /api/kg-sidecar/turn/commit`
-- `GET /api/kg-sidecar/turn/status/:turnId`
-- `POST /api/kg-sidecar/db/clear`
-- `GET /api/kg-sidecar/health/pipeline`
-
-## 安装到 SillyTavern
-
-将本仓库内容合并到你的 SillyTavern 根目录后，确认 `src/server-startup.js` 里已注册路由：
-
-```js
-import { router as kgSidecarRouter } from './endpoints/kg-sidecar.js';
-app.use('/api/kg-sidecar', kgSidecarRouter);
-```
-
-然后重启 SillyTavern。
-
-## 仓库说明
-
-当前仓库是发布版，不包含测试工具和测试数据。  
-如果你要做开发和回归，建议在你的开发仓库里保留测试目录与回归脚本。
+1. 连续对话 10~20 轮，观察关系权重是否连续演进。
+2. 明确命名事件后，检查 KGEvent 是否写入 `event_id/id/name=事件名`。
+3. 提问“涉及哪些人”，确认回复不把事件名当人物。
+4. 检查 sidecar 返回是否包含 `milestones`、`global_audit`、`graph_delta`。
 
 ## License
 
-AGPL-3.0（见 `LICENSE`）。
+AGPL-3.0

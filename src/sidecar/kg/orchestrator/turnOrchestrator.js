@@ -159,6 +159,7 @@ export class TurnOrchestrator {
                 const retrieverOut = await retrieveEntities({
                     userMessage: body.user_message,
                     chatWindow: body.chat_window,
+                    step: body.step,
                     debug: body.debug,
                     config: body.config,
                     runtime: options.runtime,

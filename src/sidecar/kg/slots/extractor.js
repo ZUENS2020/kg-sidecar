@@ -115,7 +115,77 @@ function buildGlobalAudit(actions = []) {
     };
 }
 
-function normalizeModelAction(action) {
+function trimWrappedQuotes(text) {
+    return String(text || '')
+        .trim()
+        .replace(/^[“"'‘’「」『』\s]+/, '')
+        .replace(/[”"'‘’「」『』\s]+$/, '')
+        .trim();
+}
+
+function normalizeEventNameText(value) {
+    const cleaned = trimWrappedQuotes(String(value || '').replace(/^事件[:：]\s*/, ''));
+    return cleaned.slice(0, 120);
+}
+
+function isTemplateEventName(value) {
+    const text = String(value || '').trim();
+    if (!text) {
+        return true;
+    }
+    const normalized = text.replace(/^事件[:：]\s*/, '').trim();
+    return /^(EVOLVE|REPLACE|DELETE)(?:\b|[:：-].*(?:->|→|＞))/i.test(normalized);
+}
+
+function extractEventNameFromText(text) {
+    const source = String(text || '').trim();
+    if (!source) {
+        return '';
+    }
+
+    const namedPatterns = [
+        /(?:事件(?:叫|名为|称为)|叫做|名为|称为)\s*[“"「『']?([^，。！？；;、“”"'‘’「」『』\n\r]{2,40})[”"」』']?/giu,
+        /[“"「『']([^”"」』\n\r]{2,40})[”"」』']/gu,
+    ];
+    for (const pattern of namedPatterns) {
+        let match = pattern.exec(source);
+        while (match) {
+            const candidate = normalizeEventNameText(match[1]);
+            if (candidate && !isTemplateEventName(candidate)) {
+                return candidate;
+            }
+            match = pattern.exec(source);
+        }
+    }
+
+    return '';
+}
+
+function resolveActionEventName(action, userMessage = '') {
+    const explicitRaw = String(action?.event_name || '').trim();
+    const explicitNormalized = normalizeEventNameText(explicitRaw);
+    if (explicitNormalized && !isTemplateEventName(explicitNormalized)) {
+        return explicitNormalized;
+    }
+
+    const inferred = [
+        extractEventNameFromText(action?.evidence_quote),
+        extractEventNameFromText(action?.cause),
+        extractEventNameFromText(action?.reasoning),
+        extractEventNameFromText(userMessage),
+    ].find(Boolean);
+    if (inferred) {
+        return inferred;
+    }
+
+    if (explicitRaw) {
+        return explicitRaw.slice(0, 120);
+    }
+
+    return buildEventName(action?.action, action?.from_name, action?.to_name);
+}
+
+function normalizeModelAction(action, { userMessage = '' } = {}) {
     const normalized = {
         action: pickAction(action?.action, ''),
         from_uuid: String(action?.from_uuid || '').trim(),
@@ -128,7 +198,7 @@ function normalizeModelAction(action) {
         evidence_quote: toSafeEvidence(String(action?.evidence_quote || '')),
         reasoning: toSafeReasoning(String(action?.reasoning || '')),
         cause: String(action?.cause || '').slice(0, 300),
-        event_name: String(action?.event_name || '').trim(),
+        event_name: resolveActionEventName(action, userMessage),
     };
 
     if (!normalized.event_name) {
@@ -142,13 +212,13 @@ function normalizeModelAction(action) {
     return normalized;
 }
 
-function normalizeModelOutput(modelOutput) {
+function normalizeModelOutput(modelOutput, context = {}) {
     if (!modelOutput || typeof modelOutput !== 'object') {
         return null;
     }
 
     const actions = Array.isArray(modelOutput.actions) && modelOutput.actions.length > 0
-        ? modelOutput.actions.map(action => normalizeModelAction(action)).filter(Boolean)
+        ? modelOutput.actions.map(action => normalizeModelAction(action, context)).filter(Boolean)
         : [];
 
     if (Array.isArray(modelOutput.actions) && modelOutput.actions.length > 0 && actions.length === 0) {
@@ -250,7 +320,7 @@ export async function extractActions({ retrieverOut, userMessage, chatWindow = [
         });
     }
 
-    const normalized = normalizeModelOutput(modelOutput);
+    const normalized = normalizeModelOutput(modelOutput, { userMessage });
     if (!normalized) {
         throw Object.assign(new Error('Extractor LLM output is invalid or incomplete.'), {
             code: 'EXTRACTOR_LLM_INVALID',

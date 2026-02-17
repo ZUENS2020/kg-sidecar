@@ -227,6 +227,80 @@ export class Neo4jGraphRepository {
         }
     }
 
+    async queryKeyEvents({
+        conversationId,
+        focusEntityUuids = [],
+        limit = 4,
+        currentStep = null,
+        maxAgeSteps = 30,
+    }) {
+        await this.ensureReady();
+        const session = this.driver.session({ database: this.database, defaultAccessMode: neo4j.session.READ });
+        try {
+            const focus = Array.isArray(focusEntityUuids)
+                ? focusEntityUuids.map(x => String(x || '').trim()).filter(Boolean)
+                : [];
+            const topN = Math.max(1, Math.min(20, Number(limit) || 4));
+            const maxAge = Math.max(1, Number(maxAgeSteps) || 30);
+            const nowStep = Number.isFinite(Number(currentStep)) ? Number(currentStep) : -1;
+
+            const result = await session.executeRead((tx) => tx.run(`
+                MATCH (ev:KGEvent)-[:IN_TURN]->(t:KGTurn)
+                WHERE ev.conversation_id = $conversationId
+                OPTIONAL MATCH (entity:KGEntity)-[inv:INVOLVES]->(ev)
+                WITH ev, t, collect({
+                    uuid: entity.entity_key,
+                    id: coalesce(entity.id, entity.name, entity.entity_key),
+                    role: coalesce(inv.role, 'participant')
+                }) AS participants
+                WHERE size($focus) = 0
+                   OR any(participant IN participants WHERE participant.uuid IN $focus)
+                WITH ev, t, participants,
+                     CASE
+                        WHEN ev.action = 'REPLACE' THEN 3
+                        WHEN ev.action = 'DELETE' THEN 2
+                        ELSE 1
+                     END AS actionPriority
+                WHERE $nowStep < 0
+                   OR abs($nowStep - coalesce(t.step, 0)) <= $maxAge
+                RETURN ev.event_id AS event_id,
+                       ev.action AS action,
+                       ev.evidence_quote AS evidence_quote,
+                       ev.turn_id AS turn_id,
+                       t.step AS step,
+                       participants AS participants,
+                       actionPriority AS action_priority
+                ORDER BY actionPriority DESC, t.step DESC
+                LIMIT $limit
+            `, {
+                conversationId: sanitizeText(conversationId, 120),
+                focus,
+                nowStep,
+                maxAge,
+                limit: topN,
+            }));
+
+            return result.records.map((record) => {
+                const step = normalizeNumber(record.get('step'), 0);
+                const actionPriority = normalizeNumber(record.get('action_priority'), 1);
+                const agePenalty = nowStep < 0 ? 0 : Math.max(0, Math.abs(nowStep - step));
+                const recencyScore = nowStep < 0 ? 0 : (maxAge - Math.min(maxAge, agePenalty)) / maxAge;
+                const scoreHint = Number((actionPriority * 2 + recencyScore).toFixed(3));
+                return {
+                    event_id: record.get('event_id'),
+                    action: record.get('action'),
+                    evidence_quote: record.get('evidence_quote'),
+                    turn_id: record.get('turn_id'),
+                    step,
+                    participants: Array.isArray(record.get('participants')) ? record.get('participants') : [],
+                    score_hint: scoreHint,
+                };
+            });
+        } finally {
+            await session.close();
+        }
+    }
+
     async commitMutation({ actions, judgeOut, historianOut, entities = [], turnId, step, conversationId }) {
         await this.ensureReady();
         const session = this.driver.session({ database: this.database });
@@ -414,6 +488,8 @@ export class Neo4jGraphRepository {
                         MERGE (ev:KGEvent {event_key: $eventKey})
                         ON CREATE SET ev.created_at = datetime()
                         SET ev.event_id = $eventName,
+                            ev.id = $eventName,
+                            ev.name = $eventName,
                             ev.turn_id = $turnId,
                             ev.conversation_id = $conversationId,
                             ev.action = $actionType,

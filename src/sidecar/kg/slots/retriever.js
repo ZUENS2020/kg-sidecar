@@ -149,9 +149,50 @@ function mergeFocusEntities({ modelFocus, relationHints, fallbackFocus }) {
     return merged.slice(0, 6);
 }
 
+async function queryKeyEvents({
+    graphRepository,
+    conversationId,
+    focusEntities,
+    step,
+    config,
+}) {
+    if (!graphRepository?.queryKeyEvents || !conversationId) {
+        return [];
+    }
+
+    const focusEntityUuids = (focusEntities || [])
+        .map(entity => String(entity?.uuid || '').trim())
+        .filter(Boolean);
+    if (focusEntityUuids.length === 0) {
+        return [];
+    }
+
+    const maxAgeSteps = Math.max(
+        1,
+        Number(config?.key_event_max_age_steps)
+        || Number(config?.context_window_messages)
+        || 80,
+    );
+    const limit = Math.max(1, Math.min(12, Number(config?.key_event_limit) || 4));
+
+    try {
+        const out = await graphRepository.queryKeyEvents({
+            conversationId,
+            focusEntityUuids,
+            limit,
+            currentStep: Number.isFinite(Number(step)) ? Number(step) : null,
+            maxAgeSteps,
+        });
+        return Array.isArray(out) ? out : [];
+    } catch {
+        return [];
+    }
+}
+
 export async function retrieveEntities({
     userMessage,
     chatWindow,
+    step,
     debug = {},
     config = {},
     runtime,
@@ -283,12 +324,25 @@ export async function retrieveEntities({
         }
     }
 
+    const keyEvents = await queryKeyEvents({
+        graphRepository,
+        conversationId,
+        focusEntities,
+        step,
+        config,
+    });
+    const eventRetrievalNotes = keyEvents.length > 0
+        ? `Retrieved ${keyEvents.length} key events from graph.`
+        : 'Retrieved 0 key events from graph.';
+
     return {
         focus_entities: focusEntities,
         entities: focusEntities,
         candidates,
         current_relations: currentRelations,
         relation_hints: relationHints,
+        key_events: keyEvents,
+        event_retrieval_notes: eventRetrievalNotes,
         retrieval_notes: nonEmptyString(modelPayload?.retrieval_notes)
             || `Retrieved ${focusEntities.length} focus entities for message.`,
     };
