@@ -24,28 +24,32 @@ export function validateTurnCommitRequest(body) {
     }
 
     const dbConfig = body?.config?.db;
-    if (dbConfig && typeof dbConfig === 'object') {
-        const provider = String(dbConfig.provider || '').toLowerCase();
-        if (provider && !['memory', 'neo4j'].includes(provider)) {
-            return {
-                ok: false,
-                errorCode: 'INVALID_REQUEST',
-                message: 'config.db.provider must be memory or neo4j.',
-            };
-        }
+    if (!dbConfig || typeof dbConfig !== 'object') {
+        return {
+            ok: false,
+            errorCode: 'INVALID_REQUEST',
+            message: 'config.db is required and must be an object.',
+        };
+    }
 
-        if (provider === 'neo4j') {
-            const uri = String(dbConfig.uri || '').trim();
-            const username = String(dbConfig.username || '').trim();
-            const password = String(dbConfig.password || '').trim();
-            if (!uri || !username || !password) {
-                return {
-                    ok: false,
-                    errorCode: 'INVALID_REQUEST',
-                    message: 'neo4j db config requires uri, username, and password.',
-                };
-            }
-        }
+    const provider = String(dbConfig.provider || '').toLowerCase();
+    if (provider !== 'neo4j') {
+        return {
+            ok: false,
+            errorCode: 'INVALID_REQUEST',
+            message: 'config.db.provider must be neo4j.',
+        };
+    }
+
+    const uri = String(dbConfig.uri || '').trim();
+    const username = String(dbConfig.username || '').trim();
+    const password = String(dbConfig.password || '').trim();
+    if (!uri || !username || !password) {
+        return {
+            ok: false,
+            errorCode: 'INVALID_REQUEST',
+            message: 'neo4j db config requires uri, username, and password.',
+        };
     }
 
     return { ok: true };

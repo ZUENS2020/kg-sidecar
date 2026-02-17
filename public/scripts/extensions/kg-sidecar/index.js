@@ -173,7 +173,7 @@ function buildSlotDefaults() {
     };
 }
 const DB_PROFILE_BASE = Object.freeze({
-    provider: 'memory',
+    provider: 'neo4j',
     uri: 'bolt://127.0.0.1:7687',
     database: 'neo4j',
     username: 'neo4j',
@@ -247,8 +247,8 @@ function ensureModelSettings(rawModels) {
 }
 
 function normalizeDbProvider(value) {
-    const provider = String(value || 'memory').toLowerCase();
-    return provider === 'neo4j' ? 'neo4j' : 'memory';
+    void value;
+    return 'neo4j';
 }
 
 function toProfileId(name) {
@@ -552,9 +552,7 @@ function renderDbProfileOptions() {
 
     const active = ensureActiveDbProfile();
     const options = settings.dbProfiles.map(profile => {
-        const desc = profile.provider === 'neo4j'
-            ? `${profile.provider}:${profile.database}`
-            : profile.provider;
+        const desc = `neo4j:${profile.database}`;
         return `<option value="${profile.id}">${profile.name} (${desc})</option>`;
     }).join('');
     select.html(options);
@@ -568,7 +566,6 @@ function renderDbProfileFields() {
     if (!profile) {
         return;
     }
-    $('#kg_sidecar_db_provider').val(profile.provider);
     $('#kg_sidecar_db_uri').val(profile.uri);
     $('#kg_sidecar_db_name').val(profile.database);
     $('#kg_sidecar_db_user').val(profile.username);
@@ -580,7 +577,7 @@ function updateActiveDbProfileFromForm() {
     if (!profile) {
         return;
     }
-    profile.provider = normalizeDbProvider($('#kg_sidecar_db_provider').val());
+    profile.provider = 'neo4j';
     profile.uri = String($('#kg_sidecar_db_uri').val() || DB_PROFILE_BASE.uri);
     profile.database = String($('#kg_sidecar_db_name').val() || DB_PROFILE_BASE.database);
     profile.username = String($('#kg_sidecar_db_user').val() || DB_PROFILE_BASE.username);
@@ -1191,12 +1188,6 @@ jQuery(async () => {
         const conversationId = getConversationKey();
         delete settings.conversationDbBindings[conversationId];
         renderDbBindingStatus();
-        persistSettings();
-    });
-
-    $('#kg_sidecar_db_provider').on('change', () => {
-        updateActiveDbProfileFromForm();
-        renderDbProfileOptions();
         persistSettings();
     });
 

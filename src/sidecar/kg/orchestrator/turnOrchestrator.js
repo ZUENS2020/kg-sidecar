@@ -60,7 +60,7 @@ export class TurnOrchestrator {
 
     async clearDatabase({ dbConfig = null } = {}) {
         const repositoryResolution = await this.repositoryFactory.resolveRepository(dbConfig || null);
-        if (dbConfig?.provider === 'neo4j' && repositoryResolution.storage !== 'neo4j') {
+        if (repositoryResolution.storage !== 'neo4j' || !repositoryResolution.repository) {
             return {
                 ok: false,
                 reason_code: repositoryResolution.fallback_reason || 'NEO4J_UNAVAILABLE',
@@ -145,10 +145,8 @@ export class TurnOrchestrator {
                 });
                 const repositoryResolution = await this.repositoryFactory.resolveRepository(body?.config?.db || null);
                 const graphRepository = repositoryResolution.repository;
-                const requiresStrongNeo4j = body?.config?.strong_consistency === true
-                    && body?.config?.db?.provider === 'neo4j';
-                if (requiresStrongNeo4j && repositoryResolution.storage !== 'neo4j') {
-                    throw Object.assign(new Error('Neo4j unavailable under strong consistency mode.'), {
+                if (repositoryResolution.storage !== 'neo4j' || !graphRepository) {
+                    throw Object.assign(new Error('Neo4j repository unavailable.'), {
                         code: repositoryResolution.fallback_reason || 'NEO4J_UNAVAILABLE',
                         stage: 'repository',
                         retryable: true,
@@ -259,7 +257,7 @@ export class TurnOrchestrator {
                         status: 'COMMITTED',
                         neo4j_tx_id: tx.txId || `${body.turn_id}:tx`,
                         applied_actions: extractorOut.actions.length,
-                        storage: tx.storage || 'memory',
+                        storage: tx.storage || 'neo4j',
                     },
                     graph_delta: {
                         evolve: extractorOut.actions.filter(x => x.action === 'EVOLVE').length,

@@ -42,8 +42,7 @@ Any stage failure returns `ROLLED_BACK`.
 
 Repository selection via `GraphRepositoryFactory`:
 
-- `memory` provider: `MemoryGraphRepository` (debug/local fast path)
-- `neo4j` provider: `Neo4jGraphRepository` (transactional writes)
+- `neo4j` provider only: `Neo4jGraphRepository` (transactional writes)
 
 Neo4j writes:
 
@@ -64,7 +63,7 @@ Neo4j writes:
 Extension path: `public/scripts/extensions/kg-sidecar/`
 
 - Generates per-turn payload from chat window.
-- Sends DB config (`memory` or `neo4j`) in `config.db`.
+- Sends Neo4j DB config in `config.db`.
 - Applies returned `injection_packet` to extension prompt.
 - Renders status badge (`idle`, `syncing`, `committed`, `rollback`, `error`).
 

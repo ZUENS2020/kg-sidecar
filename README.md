@@ -11,7 +11,7 @@
 
 ## 核心思路
 
-1. 检索：从 Neo4j（或内存仓库）召回焦点人物、关系与关键事件。
+1. 检索：从 Neo4j 召回焦点人物、关系与关键事件。
 2. 注入：把召回结果重构为混合视角记忆包（你 / 他人关系 / 中立背景 / 事件证据）。
 3. 主聊：主模型基于注入后的上下文生成回复。
 4. 审计更新：Extractor 执行 Evolve / Replace / Delete，Judge 做身份一致性裁决，Historian 产出剧情里程碑。
@@ -155,7 +155,7 @@ docker run -d --name neo4j-mapped \
 
 1. 打开扩展设置 `KG Sidecar`。  
 2. 勾选启用 Sidecar Pipeline。  
-3. 选择图存储（建议 Neo4j）。  
+3. 配置 Neo4j 连接信息。  
 4. 刷新并选择槽位模型（Retriever/Injector/Extractor/Judge/Historian）。  
 5. 主聊天模型仍在 ST 的 API 页面配置（不要在插件内重复配置 Actor）。  
 6. 建议开启强一致（失败即回滚，便于排错）。  
@@ -180,7 +180,7 @@ docker run -d --name neo4j-mapped \
 
 - 主聊天模型：在 SillyTavern API 页面正常配置（不在插件里重复配置 Actor）。
 - 槽位模型：建议先统一同一模型做稳定性验证，再分槽位调优。
-- 图存储：优先 Neo4j；开发联调可用 memory。
+- 图存储：仅支持 Neo4j（强制）。
 - 强一致：建议开启；超时/格式错误直接报错并回滚。
 
 ## 验证清单

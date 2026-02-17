@@ -16,9 +16,8 @@ Date: 2026-02-16
 1. Start SillyTavern.
 2. Open Extensions panel.
 3. Enable `KG Sidecar`.
-4. Configure:
-   - `Graph Storage` = `memory` or `neo4j`
-   - when `neo4j`, set URI / database / username / password.
+4. Configure Neo4j:
+   - set URI / database / username / password.
 
 ## 3. API checks
 

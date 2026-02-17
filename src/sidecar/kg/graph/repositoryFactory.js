@@ -1,4 +1,3 @@
-import { MemoryGraphRepository } from './memoryRepository.js';
 import { Neo4jGraphRepository } from './neo4jRepository.js';
 
 function buildKey(dbConfig) {
@@ -17,15 +16,10 @@ function isNeo4jConfigValid(dbConfig) {
 
 export class GraphRepositoryFactory {
     constructor() {
-        this.memory = new MemoryGraphRepository();
         this.neo4jCache = new Map();
     }
 
-    getRepository(dbConfig = null) {
-        if (!isNeo4jConfigValid(dbConfig)) {
-            return this.memory;
-        }
-
+    getRepository(dbConfig) {
         const key = buildKey(dbConfig);
         let repo = this.neo4jCache.get(key);
 
@@ -42,19 +36,11 @@ export class GraphRepositoryFactory {
         return repo;
     }
 
-    async resolveRepository(dbConfig = null) {
-        if (!dbConfig || dbConfig.provider !== 'neo4j') {
-            return {
-                repository: this.memory,
-                storage: 'memory',
-                fallback_reason: null,
-            };
-        }
-
+    async resolveRepository(dbConfig) {
         if (!isNeo4jConfigValid(dbConfig)) {
             return {
-                repository: this.memory,
-                storage: 'memory',
+                repository: null,
+                storage: 'neo4j',
                 fallback_reason: 'NEO4J_CONFIG_INVALID',
             };
         }
@@ -63,8 +49,8 @@ export class GraphRepositoryFactory {
         const healthy = await repo.healthCheck();
         if (!healthy) {
             return {
-                repository: this.memory,
-                storage: 'memory',
+                repository: null,
+                storage: 'neo4j',
                 fallback_reason: 'NEO4J_UNAVAILABLE',
             };
         }
