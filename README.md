@@ -70,14 +70,111 @@
 - `docs/architecture/`：运行架构说明
 - `docs/operations/`：运维与回归脚本说明
 
-## 安装与接入（源码方式）
+## 安装与接入（详细步骤）
 
-将本仓库内容覆盖到你的 SillyTavern 同名路径后重启 SillyTavern。
+下面是**源码覆盖安装**（当前最直接、最稳定）的方式。
 
-最少需要确保以下路径存在于 ST 根目录：
+### 0) 前置条件
+
+- 已有可运行的 SillyTavern（建议与本插件同一主版本阶段）。
+- Node.js / npm 可用（用于启动 ST）。
+- 若使用 Neo4j：本机或服务器可访问 Bolt 端口（默认 `7687`）。
+- 已准备好 LLM API（推荐 OpenRouter），并已在 ST 内可正常对话。
+
+### 1) 备份你的 SillyTavern
+
+至少备份这些目录/文件：
+- `public/scripts/extensions/`
+- `src/`
+- `data/`（尤其是 `data/default-user/settings.json`）
+
+如果你用 Git 管理 ST，建议先打一个提交点：
+
+```bash
+git add -A
+git commit -m "backup before kg-sidecar install"
+```
+
+### 2) 把插件代码覆盖到 ST 根目录
+
+将本仓库内容按同名路径复制到 ST 根目录。最少必须存在：
 - `public/scripts/extensions/kg-sidecar/*`
 - `src/sidecar/kg/*`
 - `src/endpoints/kg-sidecar.js`
+
+Windows（PowerShell）示例：
+
+```powershell
+$Plugin = "D:\kg-sidecar"      # 插件仓库路径
+$ST = "D:\SillyTavern"         # SillyTavern 根目录
+
+Copy-Item "$Plugin\public\scripts\extensions\kg-sidecar" "$ST\public\scripts\extensions\" -Recurse -Force
+Copy-Item "$Plugin\src\sidecar\kg" "$ST\src\sidecar\" -Recurse -Force
+Copy-Item "$Plugin\src\endpoints\kg-sidecar.js" "$ST\src\endpoints\" -Force
+```
+
+Linux/macOS 示例：
+
+```bash
+PLUGIN=/opt/kg-sidecar
+ST=/opt/SillyTavern
+
+cp -r "$PLUGIN/public/scripts/extensions/kg-sidecar" "$ST/public/scripts/extensions/"
+cp -r "$PLUGIN/src/sidecar/kg" "$ST/src/sidecar/"
+cp "$PLUGIN/src/endpoints/kg-sidecar.js" "$ST/src/endpoints/"
+```
+
+### 3) 重启 SillyTavern
+
+在 ST 根目录执行：
+
+```bash
+npm start
+```
+
+启动后，打开 ST 页面，确认扩展列表中出现 `KG Sidecar` 设置区。
+
+### 4) （可选）启动 Neo4j
+
+Docker 示例：
+
+```bash
+docker run -d --name neo4j-mapped \
+  -p 7474:7474 -p 7687:7687 \
+  -e NEO4J_AUTH=neo4j/Neo4jPass_2026! \
+  neo4j:latest
+```
+
+然后在插件设置中填：
+- URI: `bolt://127.0.0.1:7687`
+- Database: `neo4j`
+- Username: `neo4j`
+- Password: 你的密码
+
+### 5) 在 ST 中完成插件配置
+
+1. 打开扩展设置 `KG Sidecar`。  
+2. 勾选启用 Sidecar Pipeline。  
+3. 选择图存储（建议 Neo4j）。  
+4. 刷新并选择槽位模型（Retriever/Injector/Extractor/Judge/Historian）。  
+5. 主聊天模型仍在 ST 的 API 页面配置（不要在插件内重复配置 Actor）。  
+6. 建议开启强一致（失败即回滚，便于排错）。  
+
+### 6) 联通验证（建议按顺序）
+
+1. 发送一句带显式事件名的话，例如：  
+   `昨夜在北境并肩作战，事件名是“晨星誓约”，参与者是我和艾琳。`
+2. 再问：  
+   `晨星誓约涉及哪些人？只回答人名。`
+3. 预期：  
+   - sidecar commit 返回 `COMMITTED`  
+   - Neo4j 中 `KGEvent.event_id/id/name` 为 `晨星誓约`  
+   - 回复中不把“晨星誓约”当人物名  
+
+### 7) 升级与回滚
+
+- 升级：重复第 2 步覆盖并重启 ST。  
+- 回滚：恢复第 1 步备份，或在 Git 中切回备份提交。  
 
 ## 配置建议
 
