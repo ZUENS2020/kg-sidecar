@@ -1,0 +1,70 @@
+<div class="inline-drawer">
+    <div class="inline-drawer-toggle inline-drawer-header">
+        <b>KG Sidecar</b>
+        <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
+    </div>
+    <div class="inline-drawer-content kg-sidecar-settings">
+        <label class="checkbox_label" for="kg_sidecar_enabled">
+            <input id="kg_sidecar_enabled" type="checkbox" />
+            <span>Enable KG Sidecar Pipeline</span>
+        </label>
+
+        <label for="kg_sidecar_endpoint">Commit Endpoint</label>
+        <input id="kg_sidecar_endpoint" class="text_pole" type="text" />
+
+        <label for="kg_sidecar_timeout">Timeout (ms)</label>
+        <input id="kg_sidecar_timeout" class="text_pole" type="number" min="1000" step="500" />
+
+        <label for="kg_sidecar_db_profile_select">Database Profile</label>
+        <div class="kg-sidecar-db-profile-row">
+            <select id="kg_sidecar_db_profile_select" class="text_pole"></select>
+            <button id="kg_sidecar_db_profile_create" class="menu_button" type="button">新建</button>
+            <button id="kg_sidecar_db_profile_delete" class="menu_button" type="button">删除</button>
+        </div>
+
+        <div class="kg-sidecar-db-profile-row">
+            <button id="kg_sidecar_db_clear_current" class="menu_button" type="button">清空当前绑定数据库</button>
+            <button id="kg_sidecar_db_bind_current" class="menu_button" type="button">绑定到当前会话</button>
+            <button id="kg_sidecar_db_unbind_current" class="menu_button" type="button">解绑当前会话</button>
+        </div>
+
+        <div class="kg-sidecar-status-row">
+            <span>会话绑定</span>
+            <span id="kg_sidecar_db_binding_status" class="kg-sidecar-status">未绑定</span>
+        </div>
+
+        <label for="kg_sidecar_db_provider">Graph Storage</label>
+        <select id="kg_sidecar_db_provider" class="text_pole">
+            <option value="memory">In-Memory (Debug)</option>
+            <option value="neo4j">Neo4j</option>
+        </select>
+
+        <label for="kg_sidecar_db_uri">Neo4j URI</label>
+        <input id="kg_sidecar_db_uri" class="text_pole" type="text" placeholder="bolt://127.0.0.1:7687" />
+
+        <label for="kg_sidecar_db_name">Neo4j Database</label>
+        <input id="kg_sidecar_db_name" class="text_pole" type="text" placeholder="neo4j" />
+
+        <label for="kg_sidecar_db_user">Neo4j Username</label>
+        <input id="kg_sidecar_db_user" class="text_pole" type="text" placeholder="neo4j" />
+
+        <label for="kg_sidecar_db_password">Neo4j Password</label>
+        <input id="kg_sidecar_db_password" class="text_pole" type="password" placeholder="password" />
+
+        <label>Slot Models</label>
+        <button id="kg_sidecar_refresh_models" class="menu_button">刷新模型列表</button>
+        <div id="kg_sidecar_model_fields" class="kg-sidecar-model-grid"></div>
+
+        <div class="kg-sidecar-status-row">
+            <span>Status</span>
+            <span id="kg_sidecar_status" class="kg-sidecar-status">idle</span>
+        </div>
+
+        <div class="kg-sidecar-status-row">
+            <span>剧情里程碑</span>
+            <button id="kg_sidecar_milestone_clear" class="menu_button" type="button">清空当前会话时间线</button>
+        </div>
+        <div id="kg_sidecar_milestone_list" class="kg-sidecar-milestone-list"></div>
+        <div id="kg_sidecar_milestone_preview" class="kg-sidecar-milestone-preview">点击里程碑可回溯快照</div>
+    </div>
+</div>

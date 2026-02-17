@@ -1,0 +1,11 @@
+{
+    "display_name": "KG Sidecar",
+    "loading_order": 96,
+    "requires": [],
+    "generate_interceptor": "kg_sidecar_generate_interceptor",
+    "js": "index.js",
+    "css": "style.css",
+    "author": "Codex",
+    "version": "0.1.0",
+    "homePage": "https://github.com/SillyTavern/SillyTavern"
+}
