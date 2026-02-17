@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/cover.svg" alt="KG Sidecar Banner" width="100%" />
+  <img src="assets/cover-neo4j.svg" alt="KG Sidecar Banner" width="100%" />
 </p>
 
 # KG Sidecar（SillyTavern 动态语义知识图谱插件）
