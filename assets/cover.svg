@@ -29,15 +29,13 @@
   <g>
     <rect x="112" y="132" width="6" height="236" rx="3" fill="url(#accent)" />
     <text x="150" y="220" font-family="Space Grotesk, Segoe UI, Arial, sans-serif" font-size="96" font-weight="700" fill="#0f172a">KG Sidecar</text>
-    <text x="154" y="264" font-family="Segoe UI, Arial, sans-serif" font-size="24" fill="#334155">Dynamic Semantic Knowledge Graph for SillyTavern</text>
+    <text x="154" y="264" font-family="Segoe UI, Arial, sans-serif" font-size="24" fill="#334155">Neo4j 驱动的动态语义知识图谱</text>
 
     <g font-family="Segoe UI, Arial, sans-serif" font-size="18" fill="#0f172a">
-      <rect x="154" y="304" width="108" height="34" rx="17" fill="#ffffff" stroke="#cbd5e1" />
-      <text x="184" y="327">Neo4j</text>
-      <rect x="274" y="304" width="190" height="34" rx="17" fill="#ffffff" stroke="#cbd5e1" />
-      <text x="301" y="327">Strong Consistency</text>
-      <rect x="476" y="304" width="96" height="34" rx="17" fill="#ffffff" stroke="#cbd5e1" />
-      <text x="507" y="327">6 Slots</text>
+      <rect x="154" y="304" width="156" height="34" rx="17" fill="#ffffff" stroke="#cbd5e1" />
+      <text x="187" y="327">强一致提交</text>
+      <rect x="322" y="304" width="138" height="34" rx="17" fill="#ffffff" stroke="#cbd5e1" />
+      <text x="355" y="327">回滚安全</text>
     </g>
   </g>
 
