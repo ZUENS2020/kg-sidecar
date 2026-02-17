@@ -78,7 +78,7 @@
 
 - 已有可运行的 SillyTavern（建议与本插件同一主版本阶段）。
 - Node.js / npm 可用（用于启动 ST）。
-- 若使用 Neo4j：本机或服务器可访问 Bolt 端口（默认 `7687`）。
+- 必须有可连接的 Neo4j 实例（本机或服务器），并可访问 Bolt 端口（默认 `7687`）。
 - 已准备好 LLM API（推荐 OpenRouter），并已在 ST 内可正常对话。
 
 ### 1) 备份你的 SillyTavern
@@ -134,7 +134,7 @@ npm start
 
 启动后，打开 ST 页面，确认扩展列表中出现 `KG Sidecar` 设置区。
 
-### 4) （可选）启动 Neo4j
+### 4) 启动 Neo4j（必需；若你已在运行可跳过本步骤）
 
 Docker 示例：
 
