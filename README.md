@@ -1,7 +1,3 @@
-<p align="center">
-  <img src="assets/cover-neo4j.svg" alt="KG Sidecar Banner" width="100%" />
-</p>
-
 # KG Sidecar（SillyTavern 动态语义知识图谱插件）
 
 面向 SillyTavern 的侧车式知识图谱插件。目标是让“人物关系 + 关键事件”在多轮对话中持续可检索、可注入、可审计、可回放。
