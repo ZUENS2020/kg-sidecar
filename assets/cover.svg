@@ -31,11 +31,11 @@
     <text x="150" y="220" font-family="Space Grotesk, Segoe UI, Arial, sans-serif" font-size="96" font-weight="700" fill="#0f172a">KG Sidecar</text>
     <text x="154" y="264" font-family="Segoe UI, Arial, sans-serif" font-size="24" fill="#334155">Neo4j-Driven Semantic Knowledge Graph</text>
 
-    <g font-family="Segoe UI, Arial, sans-serif" font-size="18" fill="#0f172a">
+    <g font-family="Segoe UI, Arial, sans-serif" font-size="17" fill="#0f172a">
       <rect x="154" y="304" width="180" height="34" rx="17" fill="#ffffff" stroke="#cbd5e1" />
-      <text x="184" y="327">Strong Consistency</text>
+      <text x="244" y="321" text-anchor="middle" dominant-baseline="middle">Strong Consistency</text>
       <rect x="346" y="304" width="134" height="34" rx="17" fill="#ffffff" stroke="#cbd5e1" />
-      <text x="378" y="327">Rollback Safe</text>
+      <text x="413" y="321" text-anchor="middle" dominant-baseline="middle">Rollback Safe</text>
       <text x="154" y="374" font-size="20" fill="#0f172a">Neo4j Native Storage</text>
     </g>
   </g>
