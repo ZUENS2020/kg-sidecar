@@ -5,99 +5,94 @@
 [![Release](https://img.shields.io/github/v/release/ZUENS2020/kg-sidecar?label=release)](https://github.com/ZUENS2020/kg-sidecar/releases)
 [![License](https://img.shields.io/github/license/ZUENS2020/kg-sidecar)](LICENSE)
 [![Repository](https://img.shields.io/badge/repo-GitHub-181717?logo=github)](https://github.com/ZUENS2020/kg-sidecar)
-[![Regression](https://img.shields.io/badge/realnet%20regression-20%20turns-00b894)](scripts/kg-sidecar-realnet-regression.js)
 
-KG Sidecar 是一个为 SillyTavern 准备的“动态语义知识图谱”插件实现，目标是让多轮对话的关系记忆可持续、可追踪、可审计。
+KG Sidecar 是一个给 SillyTavern 使用的“动态语义知识图谱”插件实现。  
+它的目标不是简单记日志，而是把多轮对话中的人物关系、状态变化和关键事件，转成可追踪、可回滚、可持续注入的结构化记忆层。
 
-## 你会得到什么
+## 设计思路
 
-- 六槽位流水线：Retriever / Injector / Extractor / Judge / Historian（Actor 复用 ST 主模型）
-- 强一致提交与回滚语义（失败不脏写）
-- Neo4j 图谱写入与会话级数据库绑定
-- 里程碑时间线与快照回溯
-- 实网长对话回归脚本（20 轮）
+这个插件围绕一个核心问题来设计：  
+“如何让角色在长对话里既能记住关系演进，又不产生逻辑污染”。
 
-## 目录结构
+为此采用了三条原则：
 
-- `public/scripts/extensions/kg-sidecar/` 前端扩展
-- `src/endpoints/kg-sidecar.js` API 路由
-- `src/sidecar/kg/` sidecar 核心逻辑
-- `scripts/kg-sidecar-realnet-regression.js` 实网回归脚本
-- `docs/architecture/` 与 `docs/operations/` 运行文档
-- `tests/` 插件相关测试
+1. 强一致优先：每轮要么完整提交，要么整体回滚，不允许半成功状态。
+2. 关系演进优先：把关系变化视为一等公民，避免“有记忆但不连贯”。
+3. 可验证优先：每次更新都能解释来源，能追溯到对话证据。
+
+## 实现方法
+
+### 1. 六槽位流水线
+
+每轮对话按固定顺序执行：
+
+- Retriever：识别当前关键实体并召回相关子图。
+- Injector：把图谱记忆转换成可注入上下文。
+- Actor：由 SillyTavern 主模型负责生成回复。
+- Extractor：判定关系动作（演进 / 重塑 / 清除）。
+- Judge：做身份对齐与冲突判断。
+- Historian：生成里程碑与时间线记录。
+
+### 2. 提交门与回滚机制
+
+每轮在进入写入阶段前都会过“提交门”校验。  
+若任一关键条件不满足，结果直接回滚并给出失败原因，不写入图。
+
+### 3. 图谱数据组织
+
+图谱以“人物 + 关系 + 事件”组织：
+
+- 人物节点保存可辨识信息（用于防重名和身份稳定）。
+- 关系边保存关系类型与强度（权重表示强烈程度）。
+- 事件节点可附着多个角色，支持多角色同事件与单角色多事件。
+
+### 4. 前后端协作
+
+- 前端扩展负责配置、状态展示、里程碑回溯和会话绑定数据库。
+- 后端 sidecar 负责流水线编排、模型调用、一致性控制和图谱写入。
+
+## 技术细节
+
+### 技术栈
+
+- Node.js + Express
+- SillyTavern 扩展机制
+- Neo4j（可选 memory 存储）
+- OpenRouter（可配置为多槽位模型来源）
+
+### 关键能力
+
+- 会话级数据库绑定（新建 / 删除 / 切换 / 解绑 / 清空）
+- 模型列表动态拉取与槽位模型独立配置
+- 槽位级超时控制（支持全局与分槽位配置）
+- 关系动作审计与里程碑时间线
+- 身份冲突阻断与 Bio 同步补丁
+
+### 接口概览
+
+- `POST /api/kg-sidecar/turn/commit`
+- `GET /api/kg-sidecar/turn/status/:turnId`
+- `POST /api/kg-sidecar/turn/retry`
+- `POST /api/kg-sidecar/db/clear`
+- `GET /api/kg-sidecar/health/pipeline`
+- `GET /api/kg-sidecar/models`
 
 ## 安装到 SillyTavern
 
-把本仓库内容合并到你的 SillyTavern 根目录后，确认 `src/server-startup.js` 中有以下两处：
-
-1. import：
+将本仓库内容合并到你的 SillyTavern 根目录后，确认 `src/server-startup.js` 里已注册路由：
 
 ```js
 import { router as kgSidecarRouter } from './endpoints/kg-sidecar.js';
-```
-
-2. 路由注册：
-
-```js
 app.use('/api/kg-sidecar', kgSidecarRouter);
 ```
 
 然后重启 SillyTavern。
 
-## 快速安装脚本
+## 仓库说明
 
-### PowerShell（Windows）
+当前仓库是发布版，不包含测试工具与测试数据。  
+如果你要做开发和回归，建议在你的开发仓库里保留测试目录与回归脚本。
 
-```powershell
-$repo = "https://github.com/ZUENS2020/kg-sidecar.git"
-$stRoot = "J:\SillyTavern"
-$tmp = Join-Path $env:TEMP ("kg-sidecar-install-" + [Guid]::NewGuid().ToString("N"))
+## License
 
-git clone --depth 1 $repo $tmp
-
-Copy-Item -Recurse -Force "$tmp\public\scripts\extensions\kg-sidecar" "$stRoot\public\scripts\extensions\"
-Copy-Item -Force "$tmp\src\endpoints\kg-sidecar.js" "$stRoot\src\endpoints\"
-Copy-Item -Recurse -Force "$tmp\src\sidecar\kg" "$stRoot\src\sidecar\"
-Copy-Item -Force "$tmp\scripts\kg-sidecar-realnet-regression.js" "$stRoot\scripts\"
-
-Write-Host "请确认 src/server-startup.js 已注册 /api/kg-sidecar 路由，然后重启 SillyTavern。"
-```
-
-### Bash（Linux/macOS）
-
-```bash
-REPO="https://github.com/ZUENS2020/kg-sidecar.git"
-ST_ROOT="$HOME/SillyTavern"
-TMP_DIR="$(mktemp -d)"
-
-git clone --depth 1 "$REPO" "$TMP_DIR"
-
-cp -rf "$TMP_DIR/public/scripts/extensions/kg-sidecar" "$ST_ROOT/public/scripts/extensions/"
-cp -f "$TMP_DIR/src/endpoints/kg-sidecar.js" "$ST_ROOT/src/endpoints/"
-cp -rf "$TMP_DIR/src/sidecar/kg" "$ST_ROOT/src/sidecar/"
-cp -f "$TMP_DIR/scripts/kg-sidecar-realnet-regression.js" "$ST_ROOT/scripts/"
-
-echo "请确认 src/server-startup.js 已注册 /api/kg-sidecar 路由，然后重启 SillyTavern。"
-```
-
-## 使用
-
-1. 打开扩展面板，启用 `KG Sidecar`。
-2. 选择图存储（Neo4j 或 memory），填写连接信息。
-3. 配置各槽位模型（支持 OpenRouter 模型列表）。
-4. 开始对话，观察状态、图谱与里程碑。
-
-## 实网回归
-
-在 SillyTavern 运行状态下执行：
-
-```bash
-node scripts/kg-sidecar-realnet-regression.js
-```
-
-会自动输出报告到 `output/kg-sidecar-realnet-regression-*.json`。
-
-## 说明
-
-- 本项目遵循 AGPL-3.0（见 `LICENSE`）。
-- 推荐在测试环境先完成回归后再用于长期会话。
+AGPL-3.0（见 `LICENSE`）。

@@ -1,0 +1,15 @@
+# Test tools and test artifacts
+tests/
+scripts/kg-sidecar-realnet-regression.js
+src/sidecar/kg/regression/
+
+# Runtime/test data
+data/
+output/
+*.log
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
