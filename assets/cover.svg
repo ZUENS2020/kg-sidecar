@@ -1,29 +1,66 @@
-<svg width="1280" height="640" viewBox="0 0 1280 640" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
-  <title id="title">KG Sidecar Cover</title>
-  <desc id="desc">KG Sidecar repository cover image</desc>
+<svg width="1600" height="500" viewBox="0 0 1600 500" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">KG Sidecar Banner</title>
+  <desc id="desc">Minimal engineering banner for KG Sidecar</desc>
   <defs>
     <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#0f172a"/>
-      <stop offset="100%" stop-color="#111827"/>
+      <stop offset="0%" stop-color="#f8fafc" />
+      <stop offset="100%" stop-color="#edf2f7" />
     </linearGradient>
-    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0%" stop-color="#22d3ee"/>
-      <stop offset="100%" stop-color="#34d399"/>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0284c7" />
+      <stop offset="100%" stop-color="#0d9488" />
     </linearGradient>
+    <radialGradient id="glow" cx="80%" cy="20%" r="80%">
+      <stop offset="0%" stop-color="#22d3ee" stop-opacity="0.12" />
+      <stop offset="100%" stop-color="#22d3ee" stop-opacity="0" />
+    </radialGradient>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#cbd5e1" stroke-width="1" />
+    </pattern>
+    <filter id="softBlur" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="8" />
+    </filter>
   </defs>
-  <rect width="1280" height="640" fill="url(#bg)"/>
-  <g opacity="0.2" stroke="url(#accent)" stroke-width="2">
-    <circle cx="220" cy="180" r="72"/>
-    <circle cx="470" cy="120" r="48"/>
-    <circle cx="760" cy="220" r="66"/>
-    <circle cx="1040" cy="140" r="54"/>
-    <line x1="220" y1="180" x2="470" y2="120"/>
-    <line x1="470" y1="120" x2="760" y2="220"/>
-    <line x1="760" y1="220" x2="1040" y2="140"/>
+
+  <rect width="1600" height="500" fill="url(#bg)" />
+  <rect width="1600" height="500" fill="url(#grid)" opacity="0.45" />
+  <rect width="1600" height="500" fill="url(#glow)" />
+
+  <g>
+    <rect x="112" y="132" width="6" height="236" rx="3" fill="url(#accent)" />
+    <text x="150" y="220" font-family="Space Grotesk, Segoe UI, Arial, sans-serif" font-size="96" font-weight="700" fill="#0f172a">KG Sidecar</text>
+    <text x="154" y="264" font-family="Segoe UI, Arial, sans-serif" font-size="24" fill="#334155">Dynamic Semantic Knowledge Graph for SillyTavern</text>
+
+    <g font-family="Segoe UI, Arial, sans-serif" font-size="18" fill="#0f172a">
+      <rect x="154" y="304" width="108" height="34" rx="17" fill="#ffffff" stroke="#cbd5e1" />
+      <text x="184" y="327">Neo4j</text>
+      <rect x="274" y="304" width="190" height="34" rx="17" fill="#ffffff" stroke="#cbd5e1" />
+      <text x="301" y="327">Strong Consistency</text>
+      <rect x="476" y="304" width="96" height="34" rx="17" fill="#ffffff" stroke="#cbd5e1" />
+      <text x="507" y="327">6 Slots</text>
+    </g>
   </g>
-  <g fill="#e5e7eb" font-family="Segoe UI, Arial, sans-serif">
-    <text x="96" y="356" font-size="72" font-weight="700">KG Sidecar</text>
-    <text x="96" y="410" font-size="28" fill="#93c5fd">Dynamic Semantic Knowledge Graph for SillyTavern</text>
-    <text x="96" y="468" font-size="22" fill="#a7f3d0">Strong Consistency · Six Slots · Rollback-Safe</text>
+
+  <g transform="translate(910,72)">
+    <path d="M 120 88 L 278 56 L 452 120 L 540 228 L 430 314 L 260 334 L 96 264 Z" fill="none" stroke="#94a3b8" stroke-width="1.5" opacity="0.65" />
+    <g stroke="url(#accent)" stroke-width="2.8" fill="none" stroke-linecap="round">
+      <path d="M 104 94 L 274 58 L 454 122 L 540 228 L 430 314 L 260 334 L 96 264 L 104 94" />
+      <path d="M 274 58 L 260 334" opacity="0.72" />
+      <path d="M 104 94 L 430 314" opacity="0.54" />
+      <path d="M 96 264 L 454 122" opacity="0.46" />
+    </g>
+
+    <g fill="#ffffff" stroke="#0f766e" stroke-width="2">
+      <circle cx="104" cy="94" r="10" />
+      <circle cx="274" cy="58" r="12" />
+      <circle cx="454" cy="122" r="12" />
+      <circle cx="540" cy="228" r="10" />
+      <circle cx="430" cy="314" r="12" />
+      <circle cx="260" cy="334" r="10" />
+      <circle cx="96" cy="264" r="9" />
+    </g>
+
+    <circle cx="430" cy="314" r="30" fill="#22d3ee" opacity="0.15" filter="url(#softBlur)" />
+    <circle cx="274" cy="58" r="30" fill="#0ea5e9" opacity="0.12" filter="url(#softBlur)" />
   </g>
 </svg>
