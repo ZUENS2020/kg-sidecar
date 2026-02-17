@@ -2,9 +2,11 @@ import { selectModelForSlot } from '../model/modelRouter.js';
 import {
     buildSlotSystemPrompt,
     compactJson,
+    generateOpenRouterJson,
+    isOpenRouterTimeoutError,
     nonEmptyString,
     resolveOpenRouterSlotTimeoutMs,
-    tryOpenRouterJson,
+    resolveSlotContextWindowMessages,
 } from '../model/openRouterTextClient.js';
 
 function buildIdentityConflicts(candidates = []) {
@@ -38,9 +40,9 @@ function buildFallbackBioSync(actions = [], globalAudit = {}) {
         }));
 }
 
-function normalizeJudgeModelOutput(payload, fallback) {
+function normalizeJudgeModelOutput(payload) {
     if (!payload || typeof payload !== 'object') {
-        return fallback;
+        return null;
     }
 
     const identityConflicts = Array.isArray(payload.identity_conflicts)
@@ -51,7 +53,7 @@ function normalizeJudgeModelOutput(payload, fallback) {
                 reason: nonEmptyString(item?.reason) || 'MODEL_FLAGGED',
             }))
             .filter(item => item.name && item.uuids.length > 1)
-        : fallback.identity_conflicts;
+        : null;
 
     const bioSyncPatch = Array.isArray(payload.bio_sync_patch)
         ? payload.bio_sync_patch
@@ -62,7 +64,11 @@ function normalizeJudgeModelOutput(payload, fallback) {
                 cause: String(item?.cause || '').slice(0, 500),
             }))
             .filter(item => item.uuid && item.after)
-        : fallback.bio_sync_patch;
+        : null;
+
+    if (!identityConflicts || !bioSyncPatch) {
+        return null;
+    }
 
     const allowCommit = payload.allowCommit == null
         ? identityConflicts.length === 0
@@ -79,32 +85,34 @@ export async function judgeMutations({
     candidates = [],
     actions = [],
     globalAudit = {},
+    chatWindow = [],
     debug = {},
     config = {},
     runtime,
 }) {
     const routed = selectModelForSlot({ slot: 'judge', models: config?.models });
-    const identityConflicts = buildIdentityConflicts(candidates);
-
-    if (debug.forceIdentityConflict && identityConflicts.length === 0 && candidates[0]) {
-        identityConflicts.push({
-            name: candidates[0].name,
-            uuids: candidates[0].uuids?.length > 1
-                ? candidates[0].uuids
-                : [candidates[0].uuids?.[0] || 'unknown_a', 'unknown_b'],
-            reason: 'DEBUG_FORCED',
+    const openRouterJson = runtime?.openRouterJson || generateOpenRouterJson;
+    if (routed.provider !== 'openrouter') {
+        throw Object.assign(new Error('Judge is in strict mode and requires OpenRouter provider.'), {
+            code: 'JUDGE_STRICT_OPENROUTER_REQUIRED',
+            stage: 'judge',
+            retryable: false,
         });
     }
-
-    const fallback = {
-        identity_conflicts: identityConflicts,
-        allowCommit: identityConflicts.length === 0,
-        bio_sync_patch: buildFallbackBioSync(actions, globalAudit),
-    };
-
-    if (routed.provider !== 'openrouter' || !runtime?.userDirectories) {
-        return fallback;
+    if (!runtime?.userDirectories && !runtime?.openRouterJson) {
+        throw Object.assign(new Error('Judge requires OpenRouter runtime and refuses local fallback.'), {
+            code: 'JUDGE_LLM_REQUIRED',
+            stage: 'judge',
+            retryable: false,
+        });
     }
+    const detectedConflictCandidates = buildIdentityConflicts(candidates);
+    const guidanceBioSyncPatch = buildFallbackBioSync(actions, globalAudit);
+    const contextMessages = resolveSlotContextWindowMessages({
+        config,
+        slot: 'judge',
+        fallbackCount: 80,
+    });
 
     const systemPrompt = buildSlotSystemPrompt(
         'Judge',
@@ -116,25 +124,56 @@ export async function judgeMutations({
             candidates,
             actions,
             global_audit: globalAudit,
-            fallback,
-        }),
+            chat_window: (chatWindow || []).slice(-contextMessages),
+            detected_conflict_candidates: detectedConflictCandidates,
+            guidance_bio_sync_patch: guidanceBioSyncPatch,
+        }, 36000),
         '仅输出 JSON schema:',
         '{"identity_conflicts":[{"name":"...","uuids":["...","..."],"reason":"..."}],"allowCommit":true,"bio_sync_patch":[{"uuid":"角色:...","before":"...","after":"...","cause":"..."}]}',
     ].join('\n');
 
-    const modelOutput = await tryOpenRouterJson({
-        directories: runtime.userDirectories,
-        model: routed.model,
-        systemPrompt,
-        userMessage: userPrompt,
-        temperature: routed.temperature,
-        maxTokens: 900,
-        timeoutMs: resolveOpenRouterSlotTimeoutMs({
-            config,
-            slot: 'judge',
-            fallbackMs: 12000,
-        }),
-    }, () => null);
+    let modelOutput = null;
+    try {
+        modelOutput = await openRouterJson({
+            directories: runtime.userDirectories,
+            model: routed.model,
+            systemPrompt,
+            userMessage: userPrompt,
+            temperature: routed.temperature,
+            maxTokens: 1400,
+            timeoutMs: resolveOpenRouterSlotTimeoutMs({
+                config,
+                slot: 'judge',
+                fallbackMs: 20000,
+            }),
+        });
+    } catch (error) {
+        throw Object.assign(new Error(`Judge LLM call failed: ${String(error?.message || error)}`), {
+            code: isOpenRouterTimeoutError(error) ? 'OPENROUTER_TIMEOUT' : 'JUDGE_LLM_FAILED',
+            stage: 'judge',
+            retryable: true,
+        });
+    }
 
-    return normalizeJudgeModelOutput(modelOutput, fallback);
+    const normalized = normalizeJudgeModelOutput(modelOutput);
+    if (!normalized) {
+        throw Object.assign(new Error('Judge LLM output is invalid or incomplete.'), {
+            code: 'JUDGE_LLM_INVALID',
+            stage: 'judge',
+            retryable: true,
+        });
+    }
+
+    if (debug.forceIdentityConflict && normalized.identity_conflicts.length === 0 && candidates[0]) {
+        normalized.identity_conflicts.push({
+            name: candidates[0].name,
+            uuids: candidates[0].uuids?.length > 1
+                ? candidates[0].uuids
+                : [candidates[0].uuids?.[0] || 'unknown_a', 'unknown_b'],
+            reason: 'DEBUG_FORCED',
+        });
+        normalized.allowCommit = false;
+    }
+
+    return normalized;
 }

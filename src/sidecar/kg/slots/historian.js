@@ -2,9 +2,11 @@ import { selectModelForSlot } from '../model/modelRouter.js';
 import {
     buildMilestoneName,
     resolveOpenRouterSlotTimeoutMs,
+    resolveSlotContextWindowMessages,
     buildSlotSystemPrompt,
     compactJson,
-    tryOpenRouterJson,
+    generateOpenRouterJson,
+    isOpenRouterTimeoutError,
 } from '../model/openRouterTextClient.js';
 
 function fallbackMilestoneText(action) {
@@ -33,13 +35,13 @@ function buildFallback(actions = [], turnId = '') {
 
 function normalizeModelOutput(payload, fallback) {
     if (!payload || typeof payload !== 'object') {
-        return fallback;
+        return null;
     }
 
-    const rawMilestones = Array.isArray(payload.milestones) ? payload.milestones : fallback.milestones;
+    const rawMilestones = Array.isArray(payload.milestones) ? payload.milestones : [];
     const milestones = rawMilestones.map(item => String(item || '').trim()).filter(Boolean);
     if (milestones.length === 0) {
-        return fallback;
+        return null;
     }
 
     return {
@@ -55,12 +57,33 @@ function normalizeModelOutput(payload, fallback) {
 export async function buildMilestones(actions = [], turnId = '', options = {}) {
     const fallback = buildFallback(actions, turnId);
     const config = options?.config || {};
+    const chatWindow = options?.chatWindow || [];
     const runtime = options?.runtime;
     const routed = selectModelForSlot({ slot: 'historian', models: config?.models });
+    const openRouterJson = runtime?.openRouterJson || generateOpenRouterJson;
 
-    if (routed.provider !== 'openrouter' || !runtime?.userDirectories || actions.length === 0) {
+    if (actions.length === 0) {
         return fallback;
     }
+    if (routed.provider !== 'openrouter') {
+        throw Object.assign(new Error('Historian is in strict mode and requires OpenRouter provider.'), {
+            code: 'HISTORIAN_STRICT_OPENROUTER_REQUIRED',
+            stage: 'historian',
+            retryable: false,
+        });
+    }
+    if (!runtime?.userDirectories && !runtime?.openRouterJson) {
+        throw Object.assign(new Error('Historian requires OpenRouter runtime and refuses local fallback.'), {
+            code: 'HISTORIAN_LLM_REQUIRED',
+            stage: 'historian',
+            retryable: false,
+        });
+    }
+    const contextMessages = resolveSlotContextWindowMessages({
+        config,
+        slot: 'historian',
+        fallbackCount: 80,
+    });
 
     const systemPrompt = buildSlotSystemPrompt(
         'Historian',
@@ -72,24 +95,43 @@ export async function buildMilestones(actions = [], turnId = '', options = {}) {
             turn_id: turnId,
             actions,
             global_audit: options?.globalAudit || {},
-        }),
+            chat_window: (chatWindow || []).slice(-contextMessages),
+        }, 30000),
         '仅输出 JSON schema:',
         '{"milestones":["[剧情里程碑] ...","[剧情里程碑] ..."]}',
     ].join('\n');
 
-    const modelOutput = await tryOpenRouterJson({
-        directories: runtime.userDirectories,
-        model: routed.model,
-        systemPrompt,
-        userMessage: userPrompt,
-        temperature: routed.temperature,
-        maxTokens: 600,
-        timeoutMs: resolveOpenRouterSlotTimeoutMs({
-            config,
-            slot: 'historian',
-            fallbackMs: 10000,
-        }),
-    }, () => null);
+    let modelOutput = null;
+    try {
+        modelOutput = await openRouterJson({
+            directories: runtime.userDirectories,
+            model: routed.model,
+            systemPrompt,
+            userMessage: userPrompt,
+            temperature: routed.temperature,
+            maxTokens: 900,
+            timeoutMs: resolveOpenRouterSlotTimeoutMs({
+                config,
+                slot: 'historian',
+                fallbackMs: 18000,
+            }),
+        });
+    } catch (error) {
+        throw Object.assign(new Error(`Historian LLM call failed: ${String(error?.message || error)}`), {
+            code: isOpenRouterTimeoutError(error) ? 'OPENROUTER_TIMEOUT' : 'HISTORIAN_LLM_FAILED',
+            stage: 'historian',
+            retryable: true,
+        });
+    }
 
-    return normalizeModelOutput(modelOutput, fallback);
+    const normalized = normalizeModelOutput(modelOutput, fallback);
+    if (!normalized) {
+        throw Object.assign(new Error('Historian LLM output is invalid or empty.'), {
+            code: 'HISTORIAN_LLM_INVALID',
+            stage: 'historian',
+            retryable: true,
+        });
+    }
+
+    return normalized;
 }

@@ -206,13 +206,17 @@ export async function tryOpenRouterReply(input, fallbackFactory) {
     }
 }
 
-export function compactJson(value, maxChars = 5000) {
+export function compactJson(value, maxChars = 20000) {
     const text = JSON.stringify(value);
     if (text.length <= maxChars) {
         return text;
     }
 
     return `${text.slice(0, maxChars)}...`;
+}
+
+export function isOpenRouterTimeoutError(error) {
+    return String(error?.message || '').toLowerCase().includes('timed out');
 }
 
 export function buildSlotSystemPrompt(slotName, instructions) {
@@ -329,6 +333,20 @@ export function resolveOpenRouterSlotTimeoutMs({ config = {}, slot = '', fallbac
     }
 
     return Math.max(1000, Math.floor(Number(selected) || Number(fallbackMs) || 35000));
+}
+
+export function resolveSlotContextWindowMessages({ config = {}, slot = '', fallbackCount = 60 } = {}) {
+    const perSlot = Number(config?.slot_context_messages?.[slot]);
+    const globalValue = Number(config?.context_window_messages);
+
+    let selected = fallbackCount;
+    if (Number.isFinite(perSlot) && perSlot > 0) {
+        selected = perSlot;
+    } else if (Number.isFinite(globalValue) && globalValue > 0) {
+        selected = globalValue;
+    }
+
+    return Math.max(5, Math.min(200, Math.floor(Number(selected) || Number(fallbackCount) || 60)));
 }
 
 export function toSafeEvidence(text) {

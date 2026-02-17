@@ -1,10 +1,10 @@
 const SLOT_DEFAULTS = Object.freeze({
-    retriever: { provider: 'builtin', model: 'kg-retriever-v1', temperature: 0.2 },
-    injector: { provider: 'builtin', model: 'kg-injector-v1', temperature: 0.2 },
+    retriever: { provider: 'openrouter', model: 'openrouter/auto', temperature: 0.2 },
+    injector: { provider: 'openrouter', model: 'openrouter/auto', temperature: 0.2 },
     actor: { provider: 'openrouter', model: 'openrouter/auto', temperature: 0.7 },
-    extractor: { provider: 'builtin', model: 'kg-extractor-v1', temperature: 0.2 },
-    judge: { provider: 'builtin', model: 'kg-judge-v1', temperature: 0.1 },
-    historian: { provider: 'builtin', model: 'kg-historian-v1', temperature: 0.3 },
+    extractor: { provider: 'openrouter', model: 'openrouter/auto', temperature: 0.2 },
+    judge: { provider: 'openrouter', model: 'openrouter/auto', temperature: 0.1 },
+    historian: { provider: 'openrouter', model: 'openrouter/auto', temperature: 0.3 },
 });
 const SLOT_KEYS = Object.freeze(Object.keys(SLOT_DEFAULTS));
 

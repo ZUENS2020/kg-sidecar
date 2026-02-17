@@ -4,11 +4,13 @@ import {
     buildSlotSystemPrompt,
     clampNumber,
     compactJson,
+    generateOpenRouterJson,
+    isOpenRouterTimeoutError,
     pickAction,
     resolveOpenRouterSlotTimeoutMs,
+    resolveSlotContextWindowMessages,
     toSafeEvidence,
     toSafeReasoning,
-    tryOpenRouterJson,
 } from '../model/openRouterTextClient.js';
 
 export function computeDecayedWeight(oldWeight, deltaSteps, base = 0.98) {
@@ -113,120 +115,149 @@ function buildGlobalAudit(actions = []) {
     };
 }
 
-function normalizeModelAction(action, index, fallback) {
+function normalizeModelAction(action) {
     const normalized = {
-        action: pickAction(action?.action, fallback.action),
-        from_uuid: String(action?.from_uuid || fallback.from_uuid || '').trim(),
-        to_uuid: String(action?.to_uuid || fallback.to_uuid || '').trim(),
-        from_name: String(action?.from_name || fallback.from_name || '').trim(),
-        to_name: String(action?.to_name || fallback.to_name || '').trim(),
-        old_label: String(action?.old_label || fallback.old_label || '').trim() || null,
-        new_label: String(action?.new_label || fallback.new_label || '').trim() || null,
-        delta_weight: action?.delta_weight == null ? fallback.delta_weight : Number(action.delta_weight),
-        evidence_quote: toSafeEvidence(String(action?.evidence_quote || fallback.evidence_quote || '')),
-        reasoning: toSafeReasoning(String(action?.reasoning || fallback.reasoning || '')),
-        cause: String(action?.cause || fallback.cause || '').slice(0, 300),
-        event_name: String(action?.event_name || fallback.event_name || '').trim(),
+        action: pickAction(action?.action, ''),
+        from_uuid: String(action?.from_uuid || '').trim(),
+        to_uuid: String(action?.to_uuid || '').trim(),
+        from_name: String(action?.from_name || '').trim(),
+        to_name: String(action?.to_name || '').trim(),
+        old_label: String(action?.old_label || '').trim() || null,
+        new_label: String(action?.new_label || '').trim() || null,
+        delta_weight: action?.delta_weight == null ? null : Number(action.delta_weight),
+        evidence_quote: toSafeEvidence(String(action?.evidence_quote || '')),
+        reasoning: toSafeReasoning(String(action?.reasoning || '')),
+        cause: String(action?.cause || '').slice(0, 300),
+        event_name: String(action?.event_name || '').trim(),
     };
 
     if (!normalized.event_name) {
         normalized.event_name = buildEventName(normalized.action, normalized.from_name, normalized.to_name);
     }
 
-    if (!normalized.from_uuid || !normalized.to_uuid) {
-        return {
-            ...fallback,
-            event_name: fallback.event_name || buildEventName(fallback.action, fallback.from_name, fallback.to_name),
-            reasoning: `fallback_${index}`,
-        };
+    if (!normalized.action || !normalized.from_uuid || !normalized.to_uuid) {
+        return null;
     }
 
     return normalized;
 }
 
-function normalizeModelOutput(modelOutput, fallbackActions, fallbackAudit) {
+function normalizeModelOutput(modelOutput) {
     if (!modelOutput || typeof modelOutput !== 'object') {
-        return { actions: fallbackActions, global_audit: fallbackAudit };
+        return null;
     }
 
     const actions = Array.isArray(modelOutput.actions) && modelOutput.actions.length > 0
-        ? modelOutput.actions.map((action, index) => normalizeModelAction(action, index, fallbackActions[index] || fallbackActions[0] || {}))
-        : fallbackActions;
+        ? modelOutput.actions.map(action => normalizeModelAction(action)).filter(Boolean)
+        : [];
 
-    const globalAudit = modelOutput.global_audit && typeof modelOutput.global_audit === 'object'
-        ? {
-            storage_compare: Array.isArray(modelOutput.global_audit.storage_compare)
-                ? modelOutput.global_audit.storage_compare
-                : fallbackAudit.storage_compare,
-            bio_rewrites: Array.isArray(modelOutput.global_audit.bio_rewrites)
-                ? modelOutput.global_audit.bio_rewrites
-                : fallbackAudit.bio_rewrites,
-        }
-        : fallbackAudit;
+    if (Array.isArray(modelOutput.actions) && modelOutput.actions.length > 0 && actions.length === 0) {
+        return null;
+    }
 
-    return { actions, global_audit: globalAudit };
+    if (!modelOutput.global_audit || typeof modelOutput.global_audit !== 'object') {
+        return null;
+    }
+    if (!Array.isArray(modelOutput.global_audit.storage_compare) || !Array.isArray(modelOutput.global_audit.bio_rewrites)) {
+        return null;
+    }
+
+    return {
+        actions,
+        global_audit: {
+            storage_compare: modelOutput.global_audit.storage_compare,
+            bio_rewrites: modelOutput.global_audit.bio_rewrites,
+        },
+    };
 }
 
-export async function extractActions({ retrieverOut, userMessage, step, config = {}, runtime }) {
+export async function extractActions({ retrieverOut, userMessage, chatWindow = [], step, config = {}, runtime }) {
     const threshold = Number(config.delete_threshold ?? 0.12);
     const decayBase = Number(config.decay_base ?? 0.98);
     const routed = selectModelForSlot({ slot: 'extractor', models: config?.models });
+    const openRouterJson = runtime?.openRouterJson || generateOpenRouterJson;
+    if (routed.provider !== 'openrouter') {
+        throw Object.assign(new Error('Extractor is in strict mode and requires OpenRouter provider.'), {
+            code: 'EXTRACTOR_STRICT_OPENROUTER_REQUIRED',
+            stage: 'extractor',
+            retryable: false,
+        });
+    }
+    if (!runtime?.userDirectories && !runtime?.openRouterJson) {
+        throw Object.assign(new Error('Extractor requires OpenRouter runtime and refuses local fallback.'), {
+            code: 'EXTRACTOR_LLM_REQUIRED',
+            stage: 'extractor',
+            retryable: false,
+        });
+    }
 
-    const fallbackActions = buildDefaultActions({
+    const guidanceActions = buildDefaultActions({
         retrieverOut,
         userMessage,
         step,
         threshold,
         decayBase,
     });
-    const fallbackAudit = buildGlobalAudit(fallbackActions);
-
-    if (fallbackActions.length === 0) {
-        return {
-            actions: [],
-            global_audit: fallbackAudit,
-        };
-    }
-
-    if (routed.provider !== 'openrouter' || !runtime?.userDirectories) {
-        return {
-            actions: fallbackActions,
-            global_audit: fallbackAudit,
-        };
-    }
+    const guidanceAudit = buildGlobalAudit(guidanceActions);
+    const contextMessages = resolveSlotContextWindowMessages({
+        config,
+        slot: 'extractor',
+        fallbackCount: 80,
+    });
 
     const systemPrompt = buildSlotSystemPrompt(
         'Extractor',
-        '你负责三动作审计(EVOLVE/REPLACE/DELETE)。必须基于输入证据输出 actions + global_audit。',
+        '你负责三动作审计(EVOLVE/REPLACE/DELETE)。必须基于输入证据输出 actions + global_audit；输出不可为空对象。',
     );
     const userPrompt = [
         '输入上下文(JSON):',
         compactJson({
             user_message: userMessage,
+            chat_window: (chatWindow || []).slice(-contextMessages),
             step,
             threshold,
             decay_base: decayBase,
             current_relations: retrieverOut.current_relations,
             relation_hints: retrieverOut.relation_hints,
-            fallback_actions: fallbackActions,
-        }),
+            focus_entities: retrieverOut.focus_entities,
+            guidance_actions: guidanceActions,
+            guidance_global_audit: guidanceAudit,
+        }, 42000),
         '严格输出 JSON schema:',
         '{"actions":[{"action":"EVOLVE|REPLACE|DELETE","from_uuid":"...","to_uuid":"...","from_name":"...","to_name":"...","old_label":"...","new_label":"...","delta_weight":0.1,"evidence_quote":"...","reasoning":"...","cause":"...","event_name":"事件:..."}],"global_audit":{"storage_compare":[{"relation_key":"A->B","action":"EVOLVE|REPLACE|DELETE","conflict_with_bio":false,"note":"..."}],"bio_rewrites":[{"uuid":"角色:...","before":"...","after":"...","cause":"..."}]}}',
     ].join('\n');
 
-    const modelOutput = await tryOpenRouterJson({
-        directories: runtime.userDirectories,
-        model: routed.model,
-        systemPrompt,
-        userMessage: userPrompt,
-        temperature: routed.temperature,
-        maxTokens: 1000,
-        timeoutMs: resolveOpenRouterSlotTimeoutMs({
-            config,
-            slot: 'extractor',
-            fallbackMs: 15000,
-        }),
-    }, () => null);
+    let modelOutput = null;
+    try {
+        modelOutput = await openRouterJson({
+            directories: runtime.userDirectories,
+            model: routed.model,
+            systemPrompt,
+            userMessage: userPrompt,
+            temperature: routed.temperature,
+            maxTokens: 1800,
+            timeoutMs: resolveOpenRouterSlotTimeoutMs({
+                config,
+                slot: 'extractor',
+                fallbackMs: 22000,
+            }),
+        });
+    } catch (error) {
+        throw Object.assign(new Error(`Extractor LLM call failed: ${String(error?.message || error)}`), {
+            code: isOpenRouterTimeoutError(error) ? 'OPENROUTER_TIMEOUT' : 'EXTRACTOR_LLM_FAILED',
+            stage: 'extractor',
+            retryable: true,
+        });
+    }
 
-    return normalizeModelOutput(modelOutput, fallbackActions, fallbackAudit);
+    const normalized = normalizeModelOutput(modelOutput);
+    if (!normalized) {
+        throw Object.assign(new Error('Extractor LLM output is invalid or incomplete.'), {
+            code: 'EXTRACTOR_LLM_INVALID',
+            stage: 'extractor',
+            retryable: true,
+        });
+    }
+
+    return normalized;
 }

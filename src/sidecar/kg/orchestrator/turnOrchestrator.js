@@ -170,6 +170,7 @@ export class TurnOrchestrator {
                 const injectionOut = await injectMemory({
                     retrieverOut,
                     userMessage: body.user_message,
+                    chatWindow: body.chat_window,
                     config: body.config,
                     runtime: options.runtime,
                 });
@@ -191,6 +192,7 @@ export class TurnOrchestrator {
                 const extractorOut = await extractActions({
                     retrieverOut,
                     userMessage: body.user_message,
+                    chatWindow: body.chat_window,
                     step: body.step,
                     config: body.config,
                     runtime: options.runtime,
@@ -201,6 +203,7 @@ export class TurnOrchestrator {
                     candidates: retrieverOut.candidates,
                     actions: extractorOut.actions,
                     globalAudit: extractorOut.global_audit,
+                    chatWindow: body.chat_window,
                     debug: body.debug,
                     config: body.config,
                     runtime: options.runtime,
@@ -209,6 +212,7 @@ export class TurnOrchestrator {
                 transition('HISTORIANING');
                 const historianOut = await buildMilestones(extractorOut.actions, body.turn_id, {
                     globalAudit: extractorOut.global_audit,
+                    chatWindow: body.chat_window,
                     config: body.config,
                     runtime: options.runtime,
                 });

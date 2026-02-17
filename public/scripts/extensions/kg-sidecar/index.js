@@ -12,10 +12,14 @@ import {
     getContext,
     renderExtensionTemplateAsync,
 } from '../../extensions.js';
+import {
+    chat_completion_sources,
+    oai_settings,
+} from '../../openai.js';
 
 const MODULE_NAME = 'kg-sidecar';
 const PROMPT_TAG = '6_kg_sidecar';
-const MODEL_ENDPOINT = '/api/kg-sidecar/models';
+const CHAT_COMPLETIONS_STATUS_ENDPOINT = '/api/backends/chat-completions/status';
 const CLEAR_DB_ENDPOINT = '/api/kg-sidecar/db/clear';
 const ALL_SLOT_KEYS = ['retriever', 'injector', 'actor', 'extractor', 'judge', 'historian'];
 const CONFIGURABLE_SLOT_KEYS = ['retriever', 'injector', 'extractor', 'judge', 'historian'];
@@ -27,14 +31,147 @@ const SLOT_LABELS = {
     judge: 'Judge',
     historian: 'Historian',
 };
-const SLOT_DEFAULTS = {
-    retriever: { provider: 'openrouter', model: 'openrouter/auto', temperature: 0.2 },
-    injector: { provider: 'builtin', model: 'kg-injector-v1', temperature: 0.2 },
-    actor: { provider: 'openrouter', model: 'openrouter/auto', temperature: 0.7 },
-    extractor: { provider: 'builtin', model: 'kg-extractor-v1', temperature: 0.2 },
-    judge: { provider: 'builtin', model: 'kg-judge-v1', temperature: 0.1 },
-    historian: { provider: 'builtin', model: 'kg-historian-v1', temperature: 0.3 },
+const PROVIDER_LABELS = {
+    [chat_completion_sources.OPENAI]: 'OpenAI',
+    [chat_completion_sources.CLAUDE]: 'Claude',
+    [chat_completion_sources.OPENROUTER]: 'OpenRouter',
+    [chat_completion_sources.AI21]: 'AI21',
+    [chat_completion_sources.MAKERSUITE]: 'Google AI Studio',
+    [chat_completion_sources.VERTEXAI]: 'Vertex AI',
+    [chat_completion_sources.MISTRALAI]: 'MistralAI',
+    [chat_completion_sources.CUSTOM]: 'Custom',
+    [chat_completion_sources.COHERE]: 'Cohere',
+    [chat_completion_sources.PERPLEXITY]: 'Perplexity',
+    [chat_completion_sources.GROQ]: 'Groq',
+    [chat_completion_sources.ELECTRONHUB]: 'ElectronHub',
+    [chat_completion_sources.CHUTES]: 'Chutes',
+    [chat_completion_sources.NANOGPT]: 'NanoGPT',
+    [chat_completion_sources.DEEPSEEK]: 'DeepSeek',
+    [chat_completion_sources.AIMLAPI]: 'AIMLAPI',
+    [chat_completion_sources.XAI]: 'xAI',
+    [chat_completion_sources.POLLINATIONS]: 'Pollinations',
+    [chat_completion_sources.MOONSHOT]: 'Moonshot',
+    [chat_completion_sources.FIREWORKS]: 'Fireworks',
+    [chat_completion_sources.COMETAPI]: 'CometAPI',
+    [chat_completion_sources.AZURE_OPENAI]: 'Azure OpenAI',
+    [chat_completion_sources.ZAI]: 'Z.AI',
+    [chat_completion_sources.SILICONFLOW]: 'SiliconFlow',
 };
+const SLOT_TEMPERATURE_DEFAULTS = {
+    retriever: 0.2,
+    injector: 0.2,
+    actor: 0.7,
+    extractor: 0.2,
+    judge: 0.1,
+    historian: 0.3,
+};
+
+function getChatCompletionProviderEntries() {
+    const uiOptions = document.getElementById('chat_completion_source')?.options;
+    if (uiOptions?.length) {
+        const entries = [];
+        const seen = new Set();
+        for (const option of uiOptions) {
+            const id = String(option.value || '').trim();
+            if (!id || seen.has(id)) {
+                continue;
+            }
+            seen.add(id);
+            entries.push({
+                id,
+                label: String(option.textContent || option.label || PROVIDER_LABELS[id] || id).trim() || id,
+            });
+        }
+        if (entries.length > 0) {
+            return entries;
+        }
+    }
+
+    return Object.values(chat_completion_sources)
+        .map((id) => ({
+            id,
+            label: PROVIDER_LABELS[id] || id,
+        }))
+        .filter((item, index, list) => list.findIndex(x => x.id === item.id) === index);
+}
+
+function getCurrentChatProvider() {
+    return String(oai_settings?.chat_completion_source || chat_completion_sources.OPENROUTER || 'openrouter');
+}
+
+function resolveDefaultChatProvider() {
+    const provider = String(getCurrentChatProvider() || '').toLowerCase();
+    return isValidChatProvider(provider) ? provider : String(chat_completion_sources.OPENROUTER);
+}
+
+function getDefaultModelForProvider(provider) {
+    const source = String(provider || '').toLowerCase();
+    switch (source) {
+        case chat_completion_sources.OPENAI:
+            return String(oai_settings?.openai_model || 'gpt-4o-mini');
+        case chat_completion_sources.CLAUDE:
+            return String(oai_settings?.claude_model || 'claude-sonnet-4-5');
+        case chat_completion_sources.OPENROUTER:
+            return String(oai_settings?.openrouter_model || 'openrouter/auto');
+        case chat_completion_sources.AI21:
+            return String(oai_settings?.ai21_model || 'jamba-large');
+        case chat_completion_sources.MAKERSUITE:
+            return String(oai_settings?.google_model || 'gemini-2.5-pro');
+        case chat_completion_sources.VERTEXAI:
+            return String(oai_settings?.vertexai_model || 'gemini-2.5-pro');
+        case chat_completion_sources.MISTRALAI:
+            return String(oai_settings?.mistralai_model || 'mistral-large-latest');
+        case chat_completion_sources.CUSTOM:
+            return String(oai_settings?.custom_model || '');
+        case chat_completion_sources.COHERE:
+            return String(oai_settings?.cohere_model || 'command-r-plus');
+        case chat_completion_sources.PERPLEXITY:
+            return String(oai_settings?.perplexity_model || 'sonar-pro');
+        case chat_completion_sources.GROQ:
+            return String(oai_settings?.groq_model || 'llama-3.3-70b-versatile');
+        case chat_completion_sources.ELECTRONHUB:
+            return String(oai_settings?.electronhub_model || 'gpt-4o-mini');
+        case chat_completion_sources.CHUTES:
+            return String(oai_settings?.chutes_model || 'deepseek-ai/DeepSeek-V3-0324');
+        case chat_completion_sources.NANOGPT:
+            return String(oai_settings?.nanogpt_model || 'gpt-4o-mini');
+        case chat_completion_sources.DEEPSEEK:
+            return String(oai_settings?.deepseek_model || 'deepseek-chat');
+        case chat_completion_sources.AIMLAPI:
+            return String(oai_settings?.aimlapi_model || 'chatgpt-4o-latest');
+        case chat_completion_sources.XAI:
+            return String(oai_settings?.xai_model || 'grok-3-beta');
+        case chat_completion_sources.POLLINATIONS:
+            return String(oai_settings?.pollinations_model || 'openai');
+        case chat_completion_sources.MOONSHOT:
+            return String(oai_settings?.moonshot_model || 'kimi-latest');
+        case chat_completion_sources.FIREWORKS:
+            return String(oai_settings?.fireworks_model || 'accounts/fireworks/models/kimi-k2-instruct');
+        case chat_completion_sources.COMETAPI:
+            return String(oai_settings?.cometapi_model || 'gpt-4o');
+        case chat_completion_sources.AZURE_OPENAI:
+            return String(oai_settings?.azure_openai_model || '');
+        case chat_completion_sources.ZAI:
+            return String(oai_settings?.zai_model || 'glm-4.6');
+        case chat_completion_sources.SILICONFLOW:
+            return String(oai_settings?.siliconflow_model || 'deepseek-ai/DeepSeek-V3');
+        default:
+            return 'openrouter/auto';
+    }
+}
+
+function buildSlotDefaults() {
+    const provider = resolveDefaultChatProvider();
+    const model = getDefaultModelForProvider(provider) || 'openrouter/auto';
+    return {
+        retriever: { provider, model, temperature: SLOT_TEMPERATURE_DEFAULTS.retriever },
+        injector: { provider, model, temperature: SLOT_TEMPERATURE_DEFAULTS.injector },
+        actor: { provider, model, temperature: SLOT_TEMPERATURE_DEFAULTS.actor },
+        extractor: { provider, model, temperature: SLOT_TEMPERATURE_DEFAULTS.extractor },
+        judge: { provider, model, temperature: SLOT_TEMPERATURE_DEFAULTS.judge },
+        historian: { provider, model, temperature: SLOT_TEMPERATURE_DEFAULTS.historian },
+    };
+}
 const DB_PROFILE_BASE = Object.freeze({
     provider: 'memory',
     uri: 'bolt://127.0.0.1:7687',
@@ -48,6 +185,7 @@ const defaultSettings = {
     endpoint: '/api/kg-sidecar/turn/commit',
     statusEndpoint: '/api/kg-sidecar/turn/status',
     timeoutMs: 12000,
+    contextWindowMessages: 80,
     position: extension_prompt_types.IN_PROMPT,
     role: extension_prompt_roles.SYSTEM,
     depth: 2,
@@ -67,32 +205,34 @@ const defaultSettings = {
 };
 
 const settings = structuredClone(defaultSettings);
-const modelCatalog = {
-    builtin: [],
-    openrouter: [],
-};
-const modelCatalogLoaded = {
-    builtin: false,
-    openrouter: false,
-};
+const modelCatalog = {};
+const modelCatalogLoaded = {};
 
 function createDefaultModels() {
+    const slotDefaults = buildSlotDefaults();
     const models = {};
     for (const slot of ALL_SLOT_KEYS) {
-        models[slot] = { ...SLOT_DEFAULTS[slot] };
+        models[slot] = { ...slotDefaults[slot] };
     }
     return models;
 }
 
+function isValidChatProvider(provider) {
+    return getChatCompletionProviderEntries().some(item => item.id === provider);
+}
+
 function ensureModelSettings(rawModels) {
+    const slotDefaults = buildSlotDefaults();
+    const defaultProvider = resolveDefaultChatProvider();
     const result = {};
     for (const slot of ALL_SLOT_KEYS) {
-        const fallback = SLOT_DEFAULTS[slot];
+        const fallback = slotDefaults[slot];
         const source = rawModels?.[slot] || {};
-        const provider = String(source.provider || fallback.provider);
-        let model = String(source.model || fallback.model);
-        if (provider === 'openrouter' && (!model || /^kg-/i.test(model))) {
-            model = 'openrouter/auto';
+        const preferredProvider = String(source.provider || fallback.provider || defaultProvider).toLowerCase();
+        const provider = isValidChatProvider(preferredProvider) ? preferredProvider : defaultProvider;
+        let model = String(source.model || fallback.model || getDefaultModelForProvider(provider)).trim();
+        if (!model || /^kg-/i.test(model)) {
+            model = getDefaultModelForProvider(provider) || 'openrouter/auto';
         }
 
         result[slot] = {
@@ -480,6 +620,9 @@ function renderModelSettings() {
     if (container.length === 0) {
         return;
     }
+    const providerOptions = getChatCompletionProviderEntries()
+        .map(item => `<option value="${item.id}">${item.label}</option>`)
+        .join('');
 
     const rows = CONFIGURABLE_SLOT_KEYS.map(slot => {
         const label = SLOT_LABELS[slot] || slot;
@@ -487,8 +630,7 @@ function renderModelSettings() {
             <div class="kg-sidecar-model-row">
                 <div class="kg-sidecar-model-name">${label}</div>
                 <select class="text_pole" id="kg_sidecar_model_provider_${slot}" data-slot="${slot}" data-field="provider">
-                    <option value="builtin">builtin</option>
-                    <option value="openrouter">openrouter</option>
+                    ${providerOptions}
                 </select>
                 <select class="text_pole" id="kg_sidecar_model_id_${slot}" data-slot="${slot}" data-field="model"></select>
                 <input class="text_pole" id="kg_sidecar_model_temp_${slot}" data-slot="${slot}" data-field="temperature" type="number" min="0" max="2" step="0.1" />
@@ -506,6 +648,9 @@ function updateStatus(text, cssClass = '') {
 }
 
 function ensureModelOption(provider, modelId) {
+    if (!modelCatalog[provider]) {
+        modelCatalog[provider] = [];
+    }
     const list = modelCatalog[provider] || [];
     const id = String(modelId || '').trim();
     if (!id) {
@@ -543,14 +688,41 @@ function renderAllSlotModelOptions() {
 }
 
 async function fetchProviderModels(provider, forceRefresh = false) {
-    const target = String(provider || 'openrouter').toLowerCase();
+    const target = String(provider || resolveDefaultChatProvider()).toLowerCase();
+    if (!isValidChatProvider(target)) {
+        throw new Error(`Unsupported provider: ${target}`);
+    }
+
+    if (!modelCatalog[target]) {
+        modelCatalog[target] = [];
+    }
+
     if (!forceRefresh && modelCatalogLoaded[target] && Array.isArray(modelCatalog[target]) && modelCatalog[target].length > 0) {
         return modelCatalog[target];
     }
 
-    const response = await fetch(`${MODEL_ENDPOINT}?provider=${encodeURIComponent(target)}`, {
-        method: 'GET',
+    const payload = {
+        reverse_proxy: oai_settings?.reverse_proxy || '',
+        proxy_password: oai_settings?.proxy_password || '',
+        chat_completion_source: target,
+    };
+    if (target === chat_completion_sources.CUSTOM) {
+        payload.custom_url = oai_settings?.custom_url || '';
+        payload.custom_include_headers = oai_settings?.custom_include_headers || '';
+    }
+    if (target === chat_completion_sources.AZURE_OPENAI) {
+        payload.azure_base_url = oai_settings?.azure_base_url || '';
+        payload.azure_deployment_name = oai_settings?.azure_deployment_name || '';
+        payload.azure_api_version = oai_settings?.azure_api_version || '';
+    }
+    if (target === chat_completion_sources.ZAI) {
+        payload.zai_endpoint = oai_settings?.zai_endpoint || 'common';
+    }
+
+    const response = await fetch(CHAT_COMPLETIONS_STATUS_ENDPOINT, {
+        method: 'POST',
         headers: getRequestHeaders(),
+        body: JSON.stringify(payload),
     });
     if (!response.ok) {
         throw new Error(`Model endpoint failed: HTTP_${response.status}`);
@@ -563,24 +735,60 @@ async function fetchProviderModels(provider, forceRefresh = false) {
         throw new Error('Model endpoint returned non-JSON payload.');
     }
 
-    const models = Array.isArray(body?.models) ? body.models : [];
-    modelCatalog[target] = models.map(item => ({
-        id: String(item.id || '').trim(),
-        label: String(item.label || item.id || '').trim(),
-    })).filter(item => item.id);
+    const fromData = Array.isArray(body?.data)
+        ? body.data
+        : (Array.isArray(body?.data?.data) ? body.data.data : []);
+    const fromModels = Array.isArray(body?.models) ? body.models : [];
+    const sourceModels = fromData.length > 0 ? fromData : fromModels;
+
+    const models = sourceModels.map((item) => {
+        if (typeof item === 'string') {
+            return { id: item, label: item };
+        }
+        const id = String(item?.id || item?.name || '').trim();
+        const label = String(item?.name || item?.id || '').trim() || id;
+        return { id, label };
+    }).filter(item => item.id);
+
+    if (models.length === 0) {
+        const modelId = getDefaultModelForProvider(target);
+        modelCatalog[target] = modelId ? [{ id: modelId, label: modelId }] : [];
+    } else {
+        modelCatalog[target] = models;
+    }
     modelCatalogLoaded[target] = true;
     return modelCatalog[target];
 }
 
 async function refreshModelCatalog(forceRefresh = false) {
     updateStatus('loading models...');
+    const defaultProvider = resolveDefaultChatProvider();
+    const providers = new Set();
+    for (const slot of CONFIGURABLE_SLOT_KEYS) {
+        const provider = String(settings.models?.[slot]?.provider || defaultProvider).toLowerCase();
+        if (isValidChatProvider(provider)) {
+            providers.add(provider);
+        }
+    }
+
+    let failed = 0;
     try {
-        await fetchProviderModels('builtin', forceRefresh);
-        await fetchProviderModels('openrouter', forceRefresh);
+        for (const provider of providers) {
+            try {
+                await fetchProviderModels(provider, forceRefresh);
+            } catch (error) {
+                failed += 1;
+                console.warn(`KG Sidecar model fetch failed for provider: ${provider}`, error);
+            }
+        }
         renderAllSlotModelOptions();
-        updateStatus('models ready', 'ok');
+        if (failed > 0) {
+            updateStatus('model list partial', 'err');
+        } else {
+            updateStatus('models ready', 'ok');
+        }
     } catch (error) {
-        console.warn('KG Sidecar model catalog fetch failed', error);
+        console.warn('KG Sidecar model catalog refresh failed', error);
         renderAllSlotModelOptions();
         updateStatus('model list fallback', 'err');
     }
@@ -614,6 +822,9 @@ function loadSettings() {
     settings.maxMilestonesPerConversation = Number.isFinite(Number(extension_settings.kgSidecar?.maxMilestonesPerConversation))
         ? Number(extension_settings.kgSidecar.maxMilestonesPerConversation)
         : defaultSettings.maxMilestonesPerConversation;
+    settings.contextWindowMessages = Number.isFinite(Number(extension_settings.kgSidecar?.contextWindowMessages))
+        ? Number(extension_settings.kgSidecar.contextWindowMessages)
+        : defaultSettings.contextWindowMessages;
     ensureTimelineStore();
     ensureActiveDbProfile();
     settings.models = ensureModelSettings(extension_settings.kgSidecar?.models);
@@ -627,6 +838,7 @@ function loadSettings() {
     $('#kg_sidecar_enabled').prop('checked', settings.enabled);
     $('#kg_sidecar_endpoint').val(settings.endpoint);
     $('#kg_sidecar_timeout').val(settings.timeoutMs);
+    $('#kg_sidecar_context_messages').val(settings.contextWindowMessages);
 
     for (const slot of CONFIGURABLE_SLOT_KEYS) {
         $(`#kg_sidecar_model_provider_${slot}`).val(settings.models[slot].provider);
@@ -647,8 +859,9 @@ function buildTurnPayload(chat) {
     const turnId = `turn_${Date.now()}`;
     const dbProfile = resolveDbProfileForConversation(conversationId) || normalizeDbProfile({}, 'default');
 
+    const contextWindowMessages = Math.max(10, Math.min(200, Number(settings.contextWindowMessages) || 80));
     const chatWindow = chat
-        .slice(-20)
+        .slice(-contextWindowMessages)
         .map(message => ({
             role: message?.is_user ? 'user' : 'assistant',
             name: String(message?.name || ''),
@@ -670,6 +883,7 @@ function buildTurnPayload(chat) {
             disable_actor_slot: true,
             decay_base: 0.98,
             delete_threshold: 0.12,
+            context_window_messages: contextWindowMessages,
             db: {
                 provider: dbProfile.provider,
                 uri: dbProfile.uri,
@@ -685,9 +899,11 @@ function buildTurnPayload(chat) {
 function computeCommitTimeoutMs(payload) {
     const configured = Number(settings.timeoutMs) || defaultSettings.timeoutMs;
     const models = payload?.config?.models || {};
-    const openRouterSlots = Object.values(models).filter(slot => String(slot?.provider || '').toLowerCase() === 'openrouter').length;
-    // OpenRouter 串行槽位较慢，按槽位数动态抬高超时，避免“明明在跑但前端先超时”。
-    const recommended = Math.max(12000, openRouterSlots * 15000 + 12000);
+    const llmSlots = Object.values(models).filter(slot => Boolean(String(slot?.provider || '').trim())).length;
+    const contextWindowMessages = Number(payload?.config?.context_window_messages) || 80;
+    // 多槽位串行较慢，按槽位数动态抬高超时，避免“明明在跑但前端先超时”。
+    const contextPenalty = Math.max(0, contextWindowMessages - 40) * 120;
+    const recommended = Math.max(12000, llmSlots * 15000 + 12000 + contextPenalty);
     return Math.max(configured, recommended);
 }
 
@@ -854,6 +1070,14 @@ jQuery(async () => {
         persistSettings();
     });
 
+    $('#kg_sidecar_context_messages').on('input', () => {
+        settings.contextWindowMessages = Math.max(
+            10,
+            Math.min(200, Number($('#kg_sidecar_context_messages').val() || defaultSettings.contextWindowMessages)),
+        );
+        persistSettings();
+    });
+
     $('#kg_sidecar_db_profile_select').on('change', () => {
         settings.activeDbProfileId = String($('#kg_sidecar_db_profile_select').val() || settings.activeDbProfileId);
         renderDbProfileFields();
@@ -995,22 +1219,40 @@ jQuery(async () => {
         persistSettings();
     });
 
-    $('#kg_sidecar_model_fields').on('change', '[data-slot][data-field]', function () {
+    $('#kg_sidecar_model_fields').on('change', '[data-slot][data-field]', async function () {
         const slot = String($(this).data('slot'));
         const field = String($(this).data('field'));
+        const slotDefaults = buildSlotDefaults();
         if (!CONFIGURABLE_SLOT_KEYS.includes(slot)) {
             return;
         }
 
         if (field === 'temperature') {
-            settings.models[slot][field] = Number($(this).val() || SLOT_DEFAULTS[slot].temperature);
+            settings.models[slot][field] = Number($(this).val() || slotDefaults[slot].temperature);
         } else {
-            settings.models[slot][field] = String($(this).val() || SLOT_DEFAULTS[slot][field]);
-            if (field === 'provider' && settings.models[slot][field] === 'openrouter' && /^kg-/i.test(settings.models[slot].model || '')) {
-                settings.models[slot].model = 'openrouter/auto';
+            const rawValue = String($(this).val() || slotDefaults[slot][field] || '').trim();
+            if (field === 'provider') {
+                settings.models[slot][field] = rawValue.toLowerCase();
+            } else {
+                settings.models[slot][field] = rawValue;
+            }
+            if (field === 'provider') {
+                const defaultProvider = resolveDefaultChatProvider();
+                if (!isValidChatProvider(settings.models[slot][field])) {
+                    settings.models[slot][field] = defaultProvider;
+                }
+                const preferredModel = getDefaultModelForProvider(settings.models[slot][field]) || settings.models[slot].model;
+                if (!settings.models[slot].model || /^kg-/i.test(settings.models[slot].model || '')) {
+                    settings.models[slot].model = preferredModel;
+                }
             }
             if (field === 'provider') {
                 ensureModelOption(settings.models[slot].provider, settings.models[slot].model);
+                try {
+                    await fetchProviderModels(settings.models[slot].provider, false);
+                } catch (error) {
+                    console.warn(`KG Sidecar provider switch model fetch failed: ${settings.models[slot].provider}`, error);
+                }
                 renderSlotModelOptions(slot);
             }
         }
@@ -1064,6 +1306,18 @@ jQuery(async () => {
         refreshTurnStatus();
         renderDbBindingStatus();
     });
+    if (event_types.CHATCOMPLETION_SOURCE_CHANGED) {
+        eventSource.on(event_types.CHATCOMPLETION_SOURCE_CHANGED, async () => {
+            await refreshModelCatalog(true);
+            renderAllSlotModelOptions();
+        });
+    }
+    if (event_types.CHATCOMPLETION_MODEL_CHANGED) {
+        eventSource.on(event_types.CHATCOMPLETION_MODEL_CHANGED, async () => {
+            await refreshModelCatalog(true);
+            renderAllSlotModelOptions();
+        });
+    }
     if (event_types.CHAT_CHANGED) {
         eventSource.on(event_types.CHAT_CHANGED, () => {
             renderDbBindingStatus();

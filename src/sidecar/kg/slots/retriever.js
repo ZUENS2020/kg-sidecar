@@ -2,10 +2,12 @@ import { selectModelForSlot } from '../model/modelRouter.js';
 import {
     buildSlotSystemPrompt,
     compactJson,
+    generateOpenRouterJson,
+    isOpenRouterTimeoutError,
     nonEmptyString,
     resolveOpenRouterSlotTimeoutMs,
+    resolveSlotContextWindowMessages,
     toReadableEntityId,
-    tryOpenRouterJson,
 } from '../model/openRouterTextClient.js';
 
 const GENERIC_ENTITY_NAMES = new Set([
@@ -33,24 +35,6 @@ const GENERIC_ENTITY_NAMES = new Set([
     '她',
 ]);
 
-const LATIN_STOPWORDS = new Set([
-    'the',
-    'and',
-    'with',
-    'from',
-    'this',
-    'that',
-    'still',
-    'again',
-    'trusts',
-    'supports',
-    'continues',
-    'enemy',
-    'ally',
-    'mentor',
-    'traitor',
-]);
-
 function sanitizeName(name) {
     return String(name || '').trim().slice(0, 80);
 }
@@ -58,42 +42,6 @@ function sanitizeName(name) {
 function isGenericEntityName(name) {
     const key = sanitizeName(name).toLowerCase();
     return key ? GENERIC_ENTITY_NAMES.has(key) : true;
-}
-
-function uniqByName(items) {
-    const out = [];
-    const seen = new Set();
-    for (const item of items) {
-        const name = sanitizeName(item);
-        if (!name) {
-            continue;
-        }
-
-        const key = name.toLowerCase();
-        if (seen.has(key)) {
-            continue;
-        }
-
-        seen.add(key);
-        out.push(name);
-    }
-    return out;
-}
-
-function collectNamesFromText(text) {
-    const content = String(text || '');
-    const hanChunks = content.match(/[\p{Script=Han}]{2,8}/gu) || [];
-    const latinChunks = content.match(/\b[A-Za-z][A-Za-z0-9_-]{1,20}\b/g) || [];
-
-    const latinNames = latinChunks.filter((token) => {
-        const normalized = token.toLowerCase();
-        if (LATIN_STOPWORDS.has(normalized) || isGenericEntityName(normalized)) {
-            return false;
-        }
-        return /^[A-Z]/.test(token);
-    });
-
-    return uniqByName([...hanChunks, ...latinNames]).filter(name => !isGenericEntityName(name));
 }
 
 function toEntity(name) {
@@ -116,24 +64,6 @@ function appendUniqueEntity(target, name) {
     }
 
     target.push(entity);
-}
-
-function buildFallbackFocus({ userMessage, chatWindow }) {
-    const fromWindow = (chatWindow || []).map(item => sanitizeName(item?.name)).filter(Boolean);
-    const fromWindowFiltered = fromWindow.filter(name => !isGenericEntityName(name));
-    const fromHistoryText = collectNamesFromText(
-        (chatWindow || [])
-            .filter(item => !item?.role || String(item.role).toLowerCase() === 'user')
-            .map(item => String(item?.text || ''))
-            .join(' '),
-    );
-    const fromMessage = collectNamesFromText(userMessage);
-    const names = uniqByName([...fromMessage, ...fromWindowFiltered, ...fromHistoryText]);
-    const fallbackNames = names.length >= 2 ? names : uniqByName([...names, ...fromWindow]);
-    return fallbackNames
-        .map(name => toEntity(name))
-        .filter(Boolean)
-        .slice(0, 6);
 }
 
 async function tryResolveCandidates(name, graphRepository, fallbackUuid) {
@@ -229,12 +159,17 @@ export async function retrieveEntities({
     conversationId,
 }) {
     const routed = selectModelForSlot({ slot: 'retriever', models: config?.models });
-    const llmRetriever = routed.provider === 'openrouter';
-    const fallbackFocus = buildFallbackFocus({ userMessage, chatWindow });
-    const openRouterJson = runtime?.openRouterJson || tryOpenRouterJson;
+    const openRouterJson = runtime?.openRouterJson || generateOpenRouterJson;
 
-    let modelPayload = null;
-    if (llmRetriever && !runtime?.userDirectories) {
+    if (routed.provider !== 'openrouter') {
+        throw Object.assign(new Error('Retriever is in strict mode and requires OpenRouter provider.'), {
+            code: 'RETRIEVER_STRICT_OPENROUTER_REQUIRED',
+            stage: 'retriever',
+            retryable: false,
+        });
+    }
+
+    if (!runtime?.userDirectories && !runtime?.openRouterJson) {
         throw Object.assign(new Error('Retriever requires LLM runtime (OpenRouter) and refuses local fallback.'), {
             code: 'RETRIEVER_LLM_REQUIRED',
             stage: 'retriever',
@@ -242,53 +177,69 @@ export async function retrieveEntities({
         });
     }
 
-    if (llmRetriever && runtime?.userDirectories) {
-        const systemPrompt = buildSlotSystemPrompt(
-            'Retriever',
-            '识别本轮关键实体，输出 focus_entities 与 relation_hints。实体需要用真实称谓，不要创造不存在的人名。',
-        );
-        const userPrompt = [
-            '输入上下文(JSON):',
-            compactJson({
-                user_message: userMessage,
-                chat_window: (chatWindow || []).slice(-20),
-            }),
-            '输出 JSON schema:',
-            '{"focus_entities":[{"name":"角色名"}],"relation_hints":[{"from_name":"A","to_name":"B","label":"ALLY|TRAITOR|ENEMY|MENTOR","confidence":0.0}],"retrieval_notes":"..."}',
-        ].join('\n');
+    const contextMessages = resolveSlotContextWindowMessages({
+        config,
+        slot: 'retriever',
+        fallbackCount: 80,
+    });
+    const systemPrompt = buildSlotSystemPrompt(
+        'Retriever',
+        [
+            '识别本轮关键人物实体，输出 focus_entities 与 relation_hints。',
+            'focus_entities 只能是人物名，不得把动作短语、关系短语、事件描述当成人物。',
+            '若无法确认人物，返回空数组并在 retrieval_notes 解释原因。',
+        ].join('\n'),
+    );
+    const userPrompt = [
+        '输入上下文(JSON):',
+        compactJson({
+            user_message: userMessage,
+            chat_window: (chatWindow || []).slice(-contextMessages),
+        }, 32000),
+        '输出 JSON schema:',
+        '{"focus_entities":[{"name":"角色名"}],"relation_hints":[{"from_name":"A","to_name":"B","label":"ALLY|TRAITOR|ENEMY|MENTOR","confidence":0.0}],"retrieval_notes":"..."}',
+    ].join('\n');
 
+    let modelPayload = null;
+    try {
         const maybePayload = await openRouterJson({
             directories: runtime.userDirectories,
             model: routed.model,
             systemPrompt,
             userMessage: userPrompt,
             temperature: routed.temperature,
-            maxTokens: 700,
+            maxTokens: 1200,
             timeoutMs: resolveOpenRouterSlotTimeoutMs({
                 config,
                 slot: 'retriever',
-                fallbackMs: 18000,
+                fallbackMs: 22000,
             }),
-        }, () => null);
+        });
 
         if (maybePayload && typeof maybePayload === 'object') {
             modelPayload = maybePayload;
         }
+    } catch (error) {
+        throw Object.assign(new Error(`Retriever LLM call failed: ${String(error?.message || error)}`), {
+            code: isOpenRouterTimeoutError(error) ? 'OPENROUTER_TIMEOUT' : 'RETRIEVER_LLM_FAILED',
+            stage: 'retriever',
+            retryable: true,
+        });
+    }
 
-        if (!modelPayload) {
-            throw Object.assign(new Error('Retriever LLM call failed; no local fallback allowed for OpenRouter retriever.'), {
-                code: 'RETRIEVER_LLM_FAILED',
-                stage: 'retriever',
-                retryable: true,
-            });
-        }
+    if (!modelPayload) {
+        throw Object.assign(new Error('Retriever LLM returned empty payload.'), {
+            code: 'RETRIEVER_LLM_EMPTY_PAYLOAD',
+            stage: 'retriever',
+            retryable: true,
+        });
     }
 
     const relationHints = Array.isArray(modelPayload?.relation_hints)
         ? modelPayload.relation_hints.slice(0, 4)
         : [];
     const modelFocus = normalizeModelFocus(modelPayload, []);
-    if (llmRetriever && modelFocus.length === 0) {
+    if (modelFocus.length === 0) {
         throw Object.assign(new Error('Retriever LLM produced empty focus_entities; turn rejected.'), {
             code: 'RETRIEVER_LLM_EMPTY',
             stage: 'retriever',
@@ -298,7 +249,7 @@ export async function retrieveEntities({
     const focusEntities = mergeFocusEntities({
         modelFocus,
         relationHints,
-        fallbackFocus: llmRetriever ? [] : fallbackFocus,
+        fallbackFocus: [],
     }).slice(0, 2);
 
     const candidates = [];

@@ -2,8 +2,10 @@ import { selectModelForSlot } from '../model/modelRouter.js';
 import {
     buildSlotSystemPrompt,
     compactJson,
+    generateOpenRouterJson,
+    isOpenRouterTimeoutError,
     resolveOpenRouterSlotTimeoutMs,
-    tryOpenRouterJson,
+    resolveSlotContextWindowMessages,
 } from '../model/openRouterTextClient.js';
 
 export function buildInjectionPacket(psychology, relations, background) {
@@ -32,48 +34,76 @@ function normalizePacket(payload, fallbackPacket) {
     return packet;
 }
 
-export async function injectMemory({ retrieverOut, userMessage, config = {}, runtime }) {
-    const fallbackPacket = buildInjectionPacket(
-        { focus: retrieverOut.focus_entities },
-        { relations: retrieverOut.current_relations },
-        { user_message: userMessage },
-    );
-
+export async function injectMemory({ retrieverOut, userMessage, chatWindow = [], config = {}, runtime }) {
     const routed = selectModelForSlot({ slot: 'injector', models: config?.models });
-    let packet = fallbackPacket;
+    const openRouterJson = runtime?.openRouterJson || generateOpenRouterJson;
+    if (routed.provider !== 'openrouter') {
+        throw Object.assign(new Error('Injector is in strict mode and requires OpenRouter provider.'), {
+            code: 'INJECTOR_STRICT_OPENROUTER_REQUIRED',
+            stage: 'injector',
+            retryable: false,
+        });
+    }
+    if (!runtime?.userDirectories && !runtime?.openRouterJson) {
+        throw Object.assign(new Error('Injector requires OpenRouter runtime and refuses local fallback.'), {
+            code: 'INJECTOR_LLM_REQUIRED',
+            stage: 'injector',
+            retryable: false,
+        });
+    }
 
-    if (routed.provider === 'openrouter' && runtime?.userDirectories) {
-        const systemPrompt = buildSlotSystemPrompt(
-            'Injector',
-            '将输入上下文转换为混合人称记忆包，严格输出 JSON 字段 second_person_psychology/third_person_relations/neutral_background。',
-        );
-        const userPrompt = [
-            '上下文(JSON):',
-            compactJson({
-                focus_entities: retrieverOut.focus_entities,
-                current_relations: retrieverOut.current_relations,
-                relation_hints: retrieverOut.relation_hints,
-                user_message: userMessage,
-            }),
-            '仅输出 JSON schema:',
-            '{"second_person_psychology":"...","third_person_relations":"...","neutral_background":"..."}',
-        ].join('\n');
+    const contextMessages = resolveSlotContextWindowMessages({
+        config,
+        slot: 'injector',
+        fallbackCount: 80,
+    });
+    const systemPrompt = buildSlotSystemPrompt(
+        'Injector',
+        '将输入上下文转换为混合人称记忆包，严格输出 JSON 字段 second_person_psychology/third_person_relations/neutral_background。',
+    );
+    const userPrompt = [
+        '上下文(JSON):',
+        compactJson({
+            focus_entities: retrieverOut.focus_entities,
+            current_relations: retrieverOut.current_relations,
+            relation_hints: retrieverOut.relation_hints,
+            user_message: userMessage,
+            chat_window: (chatWindow || []).slice(-contextMessages),
+        }, 32000),
+        '仅输出 JSON schema:',
+        '{"second_person_psychology":"...","third_person_relations":"...","neutral_background":"..."}',
+    ].join('\n');
 
-        const maybePacket = await tryOpenRouterJson({
+    let maybePacket = null;
+    try {
+        maybePacket = await openRouterJson({
             directories: runtime.userDirectories,
             model: routed.model,
             systemPrompt,
             userMessage: userPrompt,
             temperature: routed.temperature,
-            maxTokens: 700,
+            maxTokens: 1200,
             timeoutMs: resolveOpenRouterSlotTimeoutMs({
                 config,
                 slot: 'injector',
-                fallbackMs: 12000,
+                fallbackMs: 18000,
             }),
-        }, () => null);
+        });
+    } catch (error) {
+        throw Object.assign(new Error(`Injector LLM call failed: ${String(error?.message || error)}`), {
+            code: isOpenRouterTimeoutError(error) ? 'OPENROUTER_TIMEOUT' : 'INJECTOR_LLM_FAILED',
+            stage: 'injector',
+            retryable: true,
+        });
+    }
 
-        packet = normalizePacket(maybePacket, fallbackPacket);
+    const packet = normalizePacket(maybePacket, null);
+    if (!packet) {
+        throw Object.assign(new Error('Injector LLM returned invalid injection packet.'), {
+            code: 'INJECTOR_LLM_INVALID',
+            stage: 'injector',
+            retryable: true,
+        });
     }
 
     return {
